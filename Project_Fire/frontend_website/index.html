@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Agniveer - Predictive Wildfire Dashboard</title>
+
+    <!-- UI/UX Enhancements -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+        rel="stylesheet" />
+
+    <!-- Prevent Dark Mode Flash (FOIT) -->
+    <script>
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark')
+        } else {
+            document.documentElement.classList.remove('dark')
+        }
+    </script>
+
+    <!-- External Libraries -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <!-- Firebase -->
+    <script defer src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
+
+    <!-- Leaflet & Chart.js -->
+    <script defer src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#FF4B4B",
+                        "warning": "#FFB347",
+                        "danger-deep": "#D93636",
+                        "surface-light": "#F9FAFB",
+                        "background-light": "#ffffff",
+                        "text-main": "#0F172A",
+                        "text-muted": "#64748B",
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1rem", "3xl": "1.5rem", "full": "9999px" },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        scaleUp: {
+                            '0%': { transform: 'scale(0.95)', opacity: '0' },
+                            '100%': { transform: 'scale(1)', opacity: '1' },
+                        },
+                        slideIn: {
+                            '0%': { transform: 'translateX(100%)', opacity: '0' },
+                            '100%': { transform: 'translateX(0)', opacity: '1' },
+                        }
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.3s ease-out forwards',
+                        'scale-up': 'scaleUp 0.3s ease-out forwards',
+                        'slide-in': 'slideIn 0.3s ease-out forwards',
+                    }
+                },
+            },
+        }
+    </script>
+    <style type="text/tailwindcss">
+        :root {
+            --fire-glow: rgba(255, 75, 75, 0.4);
+            --scanning-line: rgba(255, 75, 75, 0.15);
+        }
+        body { font-family: 'Manrope', sans-serif; @apply bg-background-light text-text-main; }
+        .glass-header {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        .fire-gradient-text {
+            background: linear-gradient(90deg, #FF4B4B, #FF8C00, #FF4B4B);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero-bg {
+            background: radial-gradient(circle at 70% 30%, rgba(255, 75, 75, 0.04) 0%, transparent 60%),
+                        radial-gradient(circle at 10% 80%, rgba(255, 140, 0, 0.02) 0%, transparent 40%),
+                        #ffffff;
+        }
+        .globe-container {
+            position: relative;
+            width: 100%;
+            max-width: 580px;
+            aspect-ratio: 1/1;
+            perspective: 2000px;
+            cursor: grab;
+            user-select: none;
+        }
+        .globe-container:active { cursor: grabbing; }
+        
+        .globe-layers-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.1s ease-out;
+            transform: rotateX(var(--globe-rot-x, 0deg)) rotateY(var(--globe-rot-y, 0deg));
+        }
+        .globe-magma-layer {
+            position: absolute;
+            inset: -5%;
+            border-radius: 50%;
+            background: radial-gradient(circle at center, transparent 40%, rgba(255, 75, 75, 0.1) 60%, rgba(255, 140, 0, 0.1) 80%, transparent 100%);
+            filter: blur(50px);
+            z-index: 1;
+        }
+        .globe-scanning-grid {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background-image: 
+            linear-gradient(var(--scanning-line) 1px, transparent 1px),
+            linear-gradient(90deg, var(--scanning-line) 1px, transparent 1px);
+            background-size: 45px 45px;
+            z-index: 25;
+            pointer-events: none;
+            border: 1px solid rgba(255, 75, 75, 0.1);
+            mask-image: radial-gradient(circle, black 75%, transparent 100%);
+            transform: translateZ(60px);
+            transition: transform 0.3s ease;
+        }
+        .heat-cloud {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(35px);
+            mix-blend-mode: multiply;
+            opacity: 0.4;
+            z-index: 15;
+            transform: translateZ(20px);
+        }
+        .heat-cloud-yellow { background: radial-gradient(circle, #fbbf24 0%, transparent 70%); }
+        .heat-cloud-red { background: radial-gradient(circle, #ef4444 0%, transparent 70%); }
+        .heat-cloud-crimson { background: radial-gradient(circle, #8B0000 0%, transparent 70%); }
+        .hotspot-marker {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #FF4B4B;
+            border-radius: 50%;
+            z-index: 30;
+            box-shadow: 0 0 12px #FF4B4B;
+            border: 2px solid white;
+            transform: translateZ(40px);
+        }
+
+        @keyframes globeSpin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .animate-globe-spin {
+            animation: globeSpin 120s linear infinite;
+            transform-origin: center;
+        }
+
+        .animate-counter-spin {
+            animation: globeSpin 120s linear infinite reverse;
+        }
+        .hotspot-label {
+            position: absolute;
+            left: 18px;
+            top: -12px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(255, 75, 75, 0.2);
+            padding: 3px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 9px;
+            font-weight: 700;
+            color: #0F172A;
+            z-index: 31;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+            @apply animate-counter-spin;
+        }
+        .feed-container {
+            @apply bg-white dark:bg-slate-900 rounded-3xl overflow-hidden shadow-xl shadow-slate-200/60 dark:shadow-none border border-slate-100 dark:border-white/5 transition-all duration-300;
+        }
+        .thermal-intensity-scale {
+            background: linear-gradient(to right, #e2e8f0, #3b82f6, #fbbf24, #ef4444, #8B0000);
+        }
+        .severity-badge {
+            @apply px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border;
+        }
+        .severity-extreme { @apply bg-red-50 text-red-600 border-red-100; }
+        .severity-high { @apply bg-orange-50 text-orange-600 border-orange-100; }
+        .severity-moderate { @apply bg-amber-50 text-amber-600 border-amber-100; }
+        .severity-low { @apply bg-emerald-50 text-emerald-600 border-emerald-100; }
+        .sparkline {
+            fill: none;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Map Fixes */
+        #fireMap {
+            width: 100%;
+            height: 100%;
+            border-radius: 1.5rem;
+            z-index: 10;
+        }
+
+        /* Toast Styles */
+        #toastContainer {
+            position: fixed;
+            top: 100px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 p-4 rounded-xl shadow-2xl min-w-[300px] flex items-start gap-3 animate-slide-in;
+            transform: translateX(120%);
+            transition: transform 0.3s ease-out;
+        }
+        .toast.show { transform: translateX(0); }
+        .toast.critical { border-left: 4px solid theme('colors.primary'); }
+        .toast.high { border-left: 4px solid theme('colors.orange.500'); }
+        
+        /* Detection Card Styles (Legacy Adaptation) */
+        .detections-grid {
+            @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6;
+        }
+        .detection-card {
+            @apply bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col gap-4;
+        }
+        .card-image {
+            @apply w-full h-48 object-cover rounded-2xl;
+        }
+        .no-data {
+            @apply col-span-full py-20 text-center text-slate-400 font-bold uppercase tracking-widest bg-slate-50 dark:bg-white/5 border-2 border-dashed border-slate-100 dark:border-white/10 rounded-[2rem];
+        }
+    </style>
+</head>
+
+<body class="font-display bg-background-light dark:bg-slate-950 transition-colors duration-500">
+    <header
+        class="fixed top-0 left-0 right-0 z-50 glass-header dark:bg-slate-900/80 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-12">
+                <div class="flex items-center gap-2 text-primary">
+                    <span class="material-symbols-outlined text-3xl font-bold">local_fire_department</span>
+                    <h2 class="text-xl font-black tracking-tighter uppercase text-slate-900 dark:text-white">Agniveer
+                    </h2>
+                </div>
+                <nav class="hidden lg:flex items-center gap-10">
+                    <a class="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors uppercase tracking-[0.15em]"
+                        href="#home">Surveillance</a>
+                    <a class="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors uppercase tracking-[0.15em]"
+                        href="#map">Live Map</a>
+                    <a class="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors uppercase tracking-[0.15em]"
+                        href="#detections">Incidents</a>
+                    <a class="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors uppercase tracking-[0.15em]"
+                        href="#stats">Analytics</a>
+                </nav>
+            </div>
+            <div class="hidden xl:flex items-center gap-6 px-6 border-x border-slate-100 dark:border-white/5 h-10">
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2 px-2 py-1 bg-primary/10 rounded-md">
+                        <span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+                        <span class="text-[8px] font-black text-primary uppercase tracking-widest">Live</span>
+                    </div>
+                    <div class="flex flex-col items-end">
+                        <span id="currentDate"
+                            class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">March 1, 2026</span>
+                        <span id="currentTime"
+                            class="text-sm font-black text-slate-900 dark:text-white font-mono tracking-tighter">21:58:44</span>
+                    </div>
+                </div>
+                <div class="w-px h-6 bg-slate-100 dark:bg-white/10 mx-2"></div>
+                <div class="flex flex-col">
+                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest">Session Active</span>
+                    <span id="sessionTimer"
+                        class="text-[10px] font-black text-slate-900 dark:text-white font-mono">00:00:00</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- Theme Toggle -->
+                <button id="themeToggle"
+                    class="p-2 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all flex items-center justify-center">
+                    <span class="material-symbols-outlined dark:hidden">dark_mode</span>
+                    <span class="material-symbols-outlined hidden dark:block">light_mode</span>
+                </button>
+                <button id="emergencyButton"
+                    class="bg-primary text-white pl-6 pr-8 py-3 rounded-xl text-[11px] font-black shadow-lg shadow-primary/25 hover:bg-danger-deep transition-all uppercase tracking-widest flex items-center gap-4">
+                    <div class="flex items-center justify-center w-6 h-6 bg-white/20 rounded-lg">
+                        <span class="material-symbols-outlined text-[18px] animate-pulse">notifications</span>
+                    </div>
+                    <span class="flex items-center gap-2">
+                        Report Emergency
+                        <span class="px-2 py-0.5 bg-slate-900/30 rounded-md text-[10px]" id="alertCount">0</span>
+                    </span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <section id="home"
+        class="pt-32 pb-24 md:pt-48 md:pb-32 hero-bg dark:bg-slate-950 overflow-hidden min-h-screen flex items-center transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8 grid lg:grid-cols-2 gap-16 items-center w-full">
+            <div class="flex flex-col items-start text-left space-y-10 z-10">
+                <div
+                    class="inline-flex items-center gap-3 px-5 py-2 rounded-full bg-slate-100 dark:bg-white/5 text-primary text-[10px] font-black uppercase tracking-[0.25em] border border-slate-200 dark:border-white/10">
+                    <span class="relative flex h-2 w-2">
+                        <span
+                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                    </span>
+                    Satellite & Drone Matrix: <span class="text-slate-900 dark:text-primary">Indian Regional
+                        Clusters</span>
+                </div>
+                <div class="space-y-6">
+                    <h1
+                        class="text-7xl md:text-[85px] font-[900] leading-[0.85] tracking-tighter text-slate-900 dark:text-white">
+                        National <br /><span class="fire-gradient-text uppercase">Surveillance</span>
+                    </h1>
+                    <div
+                        class="inline-block px-4 py-1.5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-lg mt-4">
+                        Indian Subcontinent Operations
+                    </div>
+                    <p
+                        class="text-lg md:text-xl text-slate-500 dark:text-slate-400 leading-relaxed font-medium max-w-xl">
+                        An advanced wildfire monitoring ecosystem. Redesigned for clarity, fusing multi-source thermal
+                        telemetry into a single predictive dashboard.
+                    </p>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-4 w-full pt-4">
+                    <a href="#map"
+                        class="bg-primary text-white px-10 py-5 rounded-2xl text-lg font-black shadow-xl shadow-primary/30 hover:bg-danger-deep transition-all uppercase tracking-tighter flex items-center justify-center gap-4 group">
+                        View Map
+                        <span
+                            class="material-symbols-outlined transition-transform group-hover:translate-x-1">arrow_forward</span>
+                    </a>
+                    <a href="#stats"
+                        class="bg-white dark:bg-slate-900 text-slate-900 dark:text-white border-2 border-slate-200 dark:border-white/10 px-10 py-5 rounded-2xl text-lg font-black hover:border-primary transition-all flex items-center justify-center gap-3 uppercase tracking-tighter">
+                        <span class="material-symbols-outlined font-bold">analytics</span>
+                        Statistics
+                    </a>
+                </div>
+            </div>
+            <div class="relative flex justify-center items-center lg:justify-end">
+                <div class="globe-container" id="interactiveGlobe">
+                    <div class="globe-magma-layer"></div>
+                    <div
+                        class="relative z-10 w-full h-full rounded-full overflow-hidden border-8 border-white dark:border-slate-800 shadow-2xl bg-slate-100 dark:bg-slate-900">
+                        <div class="globe-layers-wrapper">
+                            <!-- Rotating Content Block -->
+                            <div class="w-full h-full animate-globe-spin relative">
+                                <img alt="Light grayscale globe base"
+                                    class="w-full h-full object-cover scale-110 grayscale opacity-30"
+                                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuDoontA7Zr6alIJYB9-IqHOAXCg5MIx8Oe8Xm-7D1H6gPabmBCINinUZdMhVWEJc-pr-DaLf4rRJvYOSWrSQvEgbVjXo4F-3J0iZoMJHyoor9ImqhRM6KeTx9RvOtlZoumxfQ7vjrJx8O11AhsVXqLZFJ-6jVdj3YGB5DvJYBxBpBK50LPu6d4J2pYzFBe3uYmTzGdOoozlfc9Jt--MVLAwjjYVViheNwpdEMlQnVcQtZuyaZYvIY8sNMgkNq5dWnyoDRGc0-rgXls" />
+                                <div class="absolute inset-0 z-15">
+                                    <div class="heat-cloud heat-cloud-crimson w-[180px] h-[180px] top-[15%] left-[30%]">
+                                    </div>
+                                    <div class="heat-cloud heat-cloud-red w-[140px] h-[140px] top-[40%] left-[45%]">
+                                    </div>
+                                    <div class="heat-cloud heat-cloud-yellow w-[120px] h-[120px] top-[25%] right-[20%]">
+                                    </div>
+                                    <div
+                                        class="heat-cloud heat-cloud-crimson w-[200px] h-[200px] bottom-[25%] right-[35%]">
+                                    </div>
+                                </div>
+                                <div class="absolute inset-0 z-30">
+                                    <div class="hotspot-marker top-[44%] left-[72%]">
+                                        <div class="hotspot-label">
+                                            <span class="text-primary">1042°C</span> | <span class="opacity-60">INDIA |
+                                                CRITICAL</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Static Overlay Block -->
+                            <div class="globe-scanning-grid"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Summary Section (From Image) -->
+    <section class="py-20 bg-slate-50 dark:bg-slate-900 border-y border-slate-100 dark:border-white/5">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-16">
+                <div class="space-y-4">
+                    <p class="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-[0.4em]">
+                        Active Detection Points
+                    </p>
+                    <div class="flex items-baseline gap-4">
+                        <h3 class="text-8xl font-black text-slate-900 dark:text-white tracking-tighter">142</h3>
+                        <div class="flex flex-col items-start">
+                            <span
+                                class="text-primary text-sm font-black bg-white dark:bg-slate-800 px-3 py-1 rounded-lg border border-primary/10 uppercase tracking-tighter">-12%
+                                Low</span>
+                            <span class="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase mt-1">24h
+                                delta</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-4 md:border-l border-slate-200 dark:border-white/10 md:pl-16">
+                    <p class="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-[0.4em]">Avg
+                        Response Time</p>
+                    <div class="flex items-baseline gap-4">
+                        <h3 class="text-8xl font-black text-primary tracking-tighter">04:12</h3>
+                        <div class="flex flex-col items-start">
+                            <span
+                                class="text-slate-900 dark:text-white text-sm font-black bg-white dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-white/10 uppercase tracking-tighter">Optimal</span>
+                            <span
+                                class="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase mt-1">Seconds</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tactical Surveillance Section (From Image) -->
+    <section class="py-24 md:py-32 bg-white dark:bg-slate-950 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-10">
+                <div class="space-y-4">
+                    <h2
+                        class="text-5xl md:text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter uppercase leading-none">
+                        Tactical <br />Surveillance</h2>
+                    <p class="text-slate-500 dark:text-slate-400 max-w-xl text-xl font-medium">Real-time multispectral
+                        feeds from orbital
+                        satellite clusters and localized UAV drone swarms.</p>
+                </div>
+                <div
+                    class="flex items-center gap-4 bg-slate-50 dark:bg-white/5 p-2 rounded-2xl border border-slate-100 dark:border-white/10">
+                    <span
+                        class="text-[10px] font-black uppercase tracking-[0.2em] px-6 py-3 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl shadow-sm border border-slate-100 dark:border-white/10">Status:
+                        Dual-Active Detection</span>
+                </div>
+            </div>
+            <div class="grid md:grid-cols-2 gap-12">
+                <div class="feed-container group">
+                    <div class="relative overflow-hidden aspect-video">
+                        <img alt="Satellite Feed"
+                            class="w-full h-full object-cover grayscale transition-transform duration-1000 group-hover:scale-105"
+                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-0zXxAGn1nwn9_SMdHpg3ObdyeutajwKY2Anxi8Eh9-9a7lM2hhYChaAEPOqL_RFq6hZGNX8iPthZtyrJXdN9x2VA0fGEcMf4bSvlnpdaLwuNWiwAUC6WLQnsaJskwakR55mPurP8-ijZ0OR_Sum5ywMZYr2FnmLUBfZwLW8Ct5bgLInVblEdrhUJ45VrB735KLj-e3ZOHxFDO0UE3V1QuPfVDNawXTJvLp4DjblQ4NWrwpPrUidE10c8wV8lBQpDaqRrg-K3zsk" />
+                        <div class="absolute inset-0 bg-gradient-to-t from-white/30 via-transparent to-white/10"></div>
+                        <div class="absolute inset-0 p-8 flex flex-col justify-between">
+                            <div class="flex justify-between items-start">
+                                <div
+                                    class="bg-primary text-white px-4 py-2 rounded-lg font-black text-[10px] tracking-widest uppercase shadow-lg">
+                                    ORBITAL-SAT-4</div>
+                                <div
+                                    class="font-mono text-slate-900 dark:text-white text-right bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg backdrop-blur-md border border-white/50 dark:border-white/10">
+                                    <p class="text-xs font-bold">LAT: 38.8339° N</p>
+                                    <p class="text-xs font-bold">LNG: 123.0367° W</p>
+                                </div>
+                            </div>
+                            <div class="space-y-4">
+                                <div
+                                    class="flex justify-between text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest">
+                                    <span>Thermal Intensity</span>
+                                    <span class="text-primary flex items-center gap-1"><span
+                                            class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>Anomaly
+                                        Locked</span>
+                                </div>
+                                <div class="h-2 w-full thermal-intensity-scale rounded-full border border-white/40">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="feed-container group">
+                    <div class="relative overflow-hidden aspect-video">
+                        <img alt="Drone Feed"
+                            class="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
+                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkTKfrzFScuKi2mqur1E-FteSeEaGpkVePNgYQ_C8UfMdO6awF9iYFP7Ub-aZvK0gStqdrXwUmrr7j1peSTPzzEC0Zm9aapPetgECaXt6fuhE2lk2cvshG1wgKKkLMKML_Czad5x9NiHis7_6tuquBzJSc1MutT2-XSi4GvOcYwgfo-HLudU6ywArFIq_NTntmwbBAnp2xxViQkGybz0drNI2TeIBiVrF7ZORcgB1Nb53siD9AGhiFiqhH8Dr6dzMz0UtOgqGaK5I" />
+                        <div class="absolute inset-0 bg-black/5"></div>
+                        <div
+                            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 border border-primary/30 rounded-full pointer-events-none">
+                            <div class="absolute inset-0 flex items-center justify-center">
+                                <div class="w-full h-px bg-primary/20"></div>
+                                <div class="h-full w-px bg-primary/20"></div>
+                            </div>
+                        </div>
+                        <div class="absolute inset-0 p-8 flex flex-col justify-between">
+                            <div class="flex justify-between items-start">
+                                <div
+                                    class="bg-slate-900 text-white px-4 py-2 rounded-lg font-black text-[10px] tracking-widest uppercase">
+                                    UAV-UNIT-922</div>
+                                <div
+                                    class="font-mono text-slate-900 dark:text-white text-right bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg backdrop-blur-sm border border-slate-100 dark:border-white/5">
+                                    <p class="text-xs font-bold">ALT: 154.2m</p>
+                                    <p class="text-xs font-bold">SPD: 18.4 km/h</p>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-end">
+                                <div
+                                    class="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-white/5 shadow-lg">
+                                    <p class="text-[10px] font-black text-slate-900 dark:text-white uppercase">MENDOCINO
+                                        SECTOR 4</p>
+                                    <p class="font-mono text-[10px] text-primary">38° 50' 2.1" N | 123° 2' 12.1" W</p>
+                                </div>
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span
+                                        class="text-2xl font-black text-slate-900 dark:text-white italic tracking-tighter">LIVE</span>
+                                    <span
+                                        class="w-3 h-3 bg-primary rounded-full animate-pulse shadow-lg shadow-primary/40"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Regional Risk Assessment Section (From Image) -->
+    <section
+        class="py-24 bg-slate-50 dark:bg-slate-900 border-y border-slate-200 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="mb-14 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div class="space-y-4">
+                    <p class="text-primary text-[10px] font-black uppercase tracking-[0.4em]">Global Threat Vectors</p>
+                    <h2
+                        class="text-5xl md:text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter uppercase leading-none">
+                        Regional Risk <br />Assessment</h2>
+                </div>
+                <div class="text-slate-500 font-medium max-w-sm text-sm border-l-4 border-primary pl-6 py-2">
+                    Aggregated thermal probability models across high-density biosphere zones. Updated every 15 minutes.
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-white/5 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+                    <div class="flex justify-between items-start mb-8">
+                        <h4
+                            class="text-xs font-black uppercase tracking-widest text-slate-400 group-hover:text-primary transition-colors">
+                            Western Ghats</h4>
+                        <span class="severity-badge severity-extreme">Extreme</span>
+                    </div>
+                    <div class="flex items-end gap-3 mb-6">
+                        <span class="text-6xl font-black text-slate-900 dark:text-white tracking-tighter">82%</span>
+                        <span class="text-primary text-[10px] font-black uppercase tracking-widest pb-2">Risk
+                            index</span>
+                    </div>
+                    <div class="w-full h-16 mb-4">
+                        <svg class="w-full h-full" viewBox="0 0 200 60">
+                            <path class="sparkline stroke-primary opacity-20"
+                                d="M0,50 L20,45 L40,55 L60,30 L80,35 L100,10 L120,25 L140,5 L160,20 L180,15 L200,5"
+                                stroke-width="6"></path>
+                            <path class="sparkline stroke-primary"
+                                d="M0,50 L20,45 L40,55 L60,30 L80,35 L100,10 L120,25 L140,5 L160,20 L180,15 L200,5">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Trend: +14% Surge</p>
+                        <span class="material-symbols-outlined text-primary text-sm font-bold">trending_up</span>
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-white/5 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+                    <div class="flex justify-between items-start mb-8">
+                        <h4
+                            class="text-xs font-black uppercase tracking-widest text-slate-400 group-hover:text-primary transition-colors">
+                            Himalayan Foothills</h4>
+                        <span class="severity-badge severity-high">High</span>
+                    </div>
+                    <div class="flex items-end gap-3 mb-6">
+                        <span class="text-6xl font-black text-slate-900 dark:text-white tracking-tighter">68%</span>
+                        <span class="text-orange-500 text-[10px] font-black uppercase tracking-widest pb-2">Risk
+                            index</span>
+                    </div>
+                    <div class="w-full h-16 mb-4">
+                        <svg class="w-full h-full" viewBox="0 0 200 60">
+                            <path class="sparkline stroke-orange-500 opacity-20"
+                                d="M0,40 L20,45 L40,30 L60,35 L80,20 L100,25 L120,40 L140,35 L160,25 L180,30 L200,20"
+                                stroke-width="6"></path>
+                            <path class="sparkline stroke-orange-500"
+                                d="M0,40 L20,45 L40,30 L60,35 L80,20 L100,25 L120,40 L140,35 L160,25 L180,30 L200,20">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Trend: Stable</p>
+                        <span class="material-symbols-outlined text-orange-400 text-sm font-bold">horizontal_rule</span>
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-white/5 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+                    <div class="flex justify-between items-start mb-8">
+                        <h4
+                            class="text-xs font-black uppercase tracking-widest text-slate-400 group-hover:text-primary transition-colors">
+                            Central Highlands</h4>
+                        <span class="severity-badge severity-moderate">Moderate</span>
+                    </div>
+                    <div class="flex items-end gap-3 mb-6">
+                        <span class="text-6xl font-black text-slate-900 dark:text-white tracking-tighter">45%</span>
+                        <span class="text-amber-500 text-[10px] font-black uppercase tracking-widest pb-2">Risk
+                            index</span>
+                    </div>
+                    <div class="w-full h-16 mb-4">
+                        <svg class="w-full h-full" viewBox="0 0 200 60">
+                            <path class="sparkline stroke-amber-500 opacity-20"
+                                d="M0,20 L20,25 L40,40 L60,35 L80,45 L100,50 L120,45 L140,40 L160,35 L180,40 L200,45"
+                                stroke-width="6"></path>
+                            <path class="sparkline stroke-amber-500"
+                                d="M0,20 L20,25 L40,40 L60,35 L80,45 L100,50 L120,45 L140,40 L160,35 L180,40 L200,45">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Trend: Declining</p>
+                        <span class="material-symbols-outlined text-emerald-500 text-sm font-bold">trending_down</span>
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-[2rem] border border-slate-200 dark:border-white/5 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 group">
+                    <div class="flex justify-between items-start mb-8">
+                        <h4
+                            class="text-xs font-black uppercase tracking-widest text-slate-400 group-hover:text-primary transition-colors">
+                            Northeast Reserve</h4>
+                        <span class="severity-badge severity-high">High</span>
+                    </div>
+                    <div class="flex items-end gap-3 mb-6">
+                        <span class="text-6xl font-black text-slate-900 dark:text-white tracking-tighter">74%</span>
+                        <span class="text-orange-500 text-[10px] font-black uppercase tracking-widest pb-2">Risk
+                            index</span>
+                    </div>
+                    <div class="w-full h-16 mb-4">
+                        <svg class="w-full h-full" viewBox="0 0 200 60">
+                            <path class="sparkline stroke-orange-500 opacity-20"
+                                d="M0,55 L20,45 L40,50 L60,40 L80,30 L100,35 L120,20 L140,25 L160,15 L180,10 L200,5"
+                                stroke-width="6"></path>
+                            <path class="sparkline stroke-orange-500"
+                                d="M0,55 L20,45 L40,50 L60,40 L80,30 L100,35 L120,20 L140,25 L160,15 L180,10 L200,5">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Trend: Critical Gain
+                        </p>
+                        <span class="material-symbols-outlined text-primary text-sm font-bold">warning</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- New Regional Risk Trend Graph Section -->
+    <section class="pb-24 bg-slate-50 dark:bg-slate-900 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div
+                class="bg-white dark:bg-slate-800 p-10 rounded-[2.5rem] border border-slate-200 dark:border-white/5 shadow-sm">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+                    <div class="space-y-1">
+                        <h3 class="text-2xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">
+                            Regional Risk
+                            Analytics</h3>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">30-day predictive risk index
+                            across localized
+                            Indian clusters.</p>
+                    </div>
+                </div>
+                <div class="h-[300px] w-full">
+                    <canvas id="regionalTrendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Operational Incident Log Table Section (From Image) -->
+    <section
+        class="py-24 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12">
+                <div class="space-y-2">
+                    <h2 class="text-4xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">Live
+                        Predictive Operations
+                    </h2>
+                    <p class="text-slate-500 dark:text-slate-400 font-medium">Autonomous threat detection logs and
+                        cross-verified
+                        environmental risk scoring.</p>
+                </div>
+                <button
+                    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 px-6 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-900 dark:text-white hover:border-primary hover:text-primary transition-all flex items-center gap-2 shadow-sm">
+                    <span class="material-symbols-outlined text-sm">download</span>
+                    Export List
+                </button>
+            </div>
+            <div
+                class="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-white/5 overflow-hidden shadow-2xl shadow-slate-200/50 dark:shadow-none">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50 dark:bg-white/5 border-b border-slate-100 dark:border-white/5">
+                                <th class="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    Date & Time</th>
+                                <th class="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    GPS Coordinates</th>
+                                <th class="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    Predicted Severity</th>
+                                <th class="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    Confidence</th>
+                                <th class="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                    Primary Source</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm font-medium text-slate-700">
+                            <!-- Mock data from image -->
+                            <tr
+                                class="border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                <td class="px-8 py-6 font-mono font-bold text-slate-900 dark:text-white static-date">
+                                    2026-03-01 14:22:05
+                                </td>
+                                <td class="px-8 py-6 font-mono text-xs text-slate-500">34.0522° N, 118.2437° W</td>
+                                <td class="px-8 py-6"><span class="severity-badge severity-extreme">Extreme</span></td>
+                                <td class="px-8 py-6">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                            <div class="bg-primary h-full w-[98%]"></div>
+                                        </div>
+                                        <span class="font-bold text-slate-900">98.4%</span>
+                                    </div>
+                                </td>
+                                <td class="px-8 py-6">
+                                    <div
+                                        class="flex items-center gap-2 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
+                                        <span
+                                            class="material-symbols-outlined text-lg text-slate-400">satellite_alt</span>
+                                        Satellite Array
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr
+                                class="border-b border-slate-50 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                <td class="px-8 py-6 font-mono font-bold text-slate-900 dark:text-white static-date">
+                                    2026-03-01 14:18:42
+                                </td>
+                                <td class="px-8 py-6 font-mono text-xs text-slate-500">38.8339° N, 123.0367° W</td>
+                                <td class="px-8 py-6"><span class="severity-badge severity-high">High</span></td>
+                                <td class="px-8 py-6">
+                                    <div class="flex items-center gap-3">
+                                        <div
+                                            class="w-20 h-1.5 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
+                                            <div class="bg-orange-500 h-full w-[85%]"></div>
+                                        </div>
+                                        <span class="font-bold text-slate-900 dark:text-white">85.2%</span>
+                                    </div>
+                                </td>
+                                <td class="px-8 py-6">
+                                    <div
+                                        class="flex items-center gap-2 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
+                                        <span
+                                            class="material-symbols-outlined text-lg text-slate-400">airplanemode_active</span>
+                                        Drone Cluster
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Map Section -->
+    <section id="map"
+        class="py-20 bg-slate-50 dark:bg-slate-900 border-y border-slate-100 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div class="space-y-4">
+                    <p class="text-primary text-[10px] font-black uppercase tracking-[0.4em]">Tactical Map</p>
+                    <h2
+                        class="text-5xl md:text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter uppercase leading-none">
+                        Real-time <br />Fire Map</h2>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Risk
+                        Level:</span>
+                    <select id="severityFilter"
+                        class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 px-6 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest text-slate-900 dark:text-white hover:border-primary transition-all shadow-sm outline-none">
+                        <option value="all">Everywhere</option>
+                        <option value="critical">High Danger</option>
+                        <option value="high">Frequent Fires</option>
+                        <option value="medium">Normal Alerts</option>
+                        <option value="low">Low Risk</option>
+                    </select>
+                </div>
+            </div>
+
+            <div
+                class="relative w-full h-[600px] bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-white/5 shadow-2xl overflow-hidden p-2">
+                <div id="fireMap"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Incidents Section -->
+    <section id="detections" class="py-24 bg-white dark:bg-slate-950 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-10">
+                <div class="space-y-4">
+                    <h2
+                        class="text-5xl md:text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter uppercase leading-none">
+                        Recent <br />Detections</h2>
+                    <p class="text-slate-500 dark:text-slate-400 max-w-xl text-xl font-medium">Real-time multispectral
+                        feeds from orbital
+                        satellite clusters and localized UAV drone swarms.</p>
+                </div>
+            </div>
+            <div id="detectionsGrid" class="detections-grid">
+                <!-- Data populated by JS -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Analytics Section -->
+    <section id="stats"
+        class="py-24 bg-slate-50 dark:bg-slate-900 border-y border-slate-200 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div class="space-y-4">
+                    <p class="text-primary text-[10px] font-black uppercase tracking-[0.4em]">Analytics Engine</p>
+                    <h2
+                        class="text-5xl md:text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter uppercase leading-none">
+                        Regional Risk <br />Assessment</h2>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-8 mb-16">
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col gap-2">
+                    <div class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                        Total Detections</div>
+                    <div class="text-4xl font-black text-slate-900 dark:text-white" id="totalDetections">0</div>
+                    <div
+                        class="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">trending_up</span> All-time telemetry
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col gap-2">
+                    <div class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                        Active Fires</div>
+                    <div class="text-4xl font-black text-primary" id="activeFires">0</div>
+                    <div class="text-[10px] text-primary font-bold uppercase tracking-widest flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">warning</span> Real-time monitoring
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm flex flex-col gap-2">
+                    <div class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+                        Today's Alerts</div>
+                    <div class="text-4xl font-black text-slate-900 dark:text-white" id="todayDetections">0</div>
+                    <div class="text-[10px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">schedule</span> Last 24 hours
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+                <div
+                    class="bg-white dark:bg-slate-800 p-10 rounded-[2.5rem] border border-slate-200 dark:border-white/5 shadow-sm">
+                    <h3
+                        class="text-xl font-black uppercase tracking-tighter mb-8 bg-slate-50 dark:bg-white/5 p-4 rounded-2xl border border-slate-100 dark:border-white/10 text-slate-900 dark:text-white">
+                        Intensity Metrics (Severity)</h3>
+                    <div class="h-[300px] flex items-center justify-center">
+                        <canvas id="severityChart"></canvas>
+                    </div>
+                </div>
+                <div
+                    class="bg-white dark:bg-slate-800 p-10 rounded-[2.5rem] border border-slate-200 dark:border-white/5 shadow-sm">
+                    <h3
+                        class="text-xl font-black uppercase tracking-tighter mb-8 bg-slate-50 dark:bg-white/5 p-4 rounded-2xl border border-slate-100 dark:border-white/10 text-slate-900 dark:text-white">
+                        Operational Lifecycle (Status)</h3>
+                    <div class="h-[300px] flex items-center justify-center">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Eyes on the Ground: Public Reporting -->
+    <section id="reporting" class="py-24 bg-white dark:bg-slate-950 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="grid lg:grid-cols-2 gap-20 items-center">
+                <div class="space-y-8">
+                    <div
+                        class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest">
+                        <span class="material-symbols-outlined text-[14px]">visibility</span>
+                        Eyes on the Ground
+                    </div>
+                    <h2 class="text-6xl font-[900] text-slate-900 dark:text-white tracking-tighter leading-none">REPORT
+                        <br /><span class="fire-gradient-text uppercase">INCIDENTS</span>
+                    </h2>
+                    <p class="text-slate-500 dark:text-slate-400 text-xl font-medium leading-relaxed">
+                        Seen smoke or fire in your region? Help the matrix protect your community by reporting live
+                        sightings. Your telemetry helps calibrate our satellite grid.
+                    </p>
+                    <div class="grid grid-cols-2 gap-6 pt-4">
+                        <div id="uploadTrigger"
+                            class="p-6 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 hover:border-primary transition-all cursor-pointer group">
+                            <input type="file" id="photoUpload" class="hidden" accept="image/*">
+                            <span
+                                class="material-symbols-outlined text-primary mb-3 group-hover:scale-110 transition-transform">camera_enhance</span>
+                            <div
+                                class="text-[11px] font-black uppercase tracking-widest text-slate-900 dark:text-white uppercase tracking-widest">
+                                Upload Photos
+                            </div>
+                            <div class="text-[10px] items-center text-slate-400 font-bold uppercase mt-1">Instant
+                                Analysis</div>
+                        </div>
+                        <div id="gpsTrigger"
+                            class="p-6 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 hover:border-primary transition-all cursor-pointer group">
+                            <span
+                                class="material-symbols-outlined text-primary mb-3 group-hover:scale-110 transition-transform">location_searching</span>
+                            <div
+                                class="text-[11px] font-black uppercase tracking-widest text-slate-900 dark:text-white uppercase tracking-widest">
+                                GPS Pinpoint
+                            </div>
+                            <div class="text-[10px] items-center text-slate-400 font-bold uppercase mt-1">Precise
+                                Targeting</div>
+                        </div>
+                    </div>
+                </div>
+                <div
+                    class="bg-slate-50 dark:bg-white/5 rounded-[3rem] p-10 border border-slate-100 dark:border-white/10 shadow-xl">
+                    <form id="incidentForm" class="space-y-6">
+                        <div class="space-y-2">
+                            <label
+                                class="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">Location
+                                Details</label>
+                            <input type="text" placeholder="Region name or City"
+                                class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 px-6 py-4 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:dark:text-slate-600">
+                        </div>
+                        <div class="space-y-2">
+                            <label
+                                class="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 ml-1">Observational
+                                Briefings</label>
+                            <textarea placeholder="Describe what you see (e.g., Heavy smoke near North Ridge)" rows="4"
+                                class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 px-6 py-4 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all resize-none placeholder:dark:text-slate-600"></textarea>
+                        </div>
+                        <button type="submit"
+                            class="w-full bg-primary text-white py-5 rounded-2xl text-lg font-black shadow-xl shadow-primary/30 hover:bg-danger-deep transition-all uppercase tracking-tighter flex items-center justify-center gap-4">
+                            Submit Sighting
+                            <span class="material-symbols-outlined">send</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Agniveer Academy: Citizen Training -->
+    <section id="academy" class="py-24 bg-slate-950 text-white overflow-hidden relative">
+        <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_120%,rgba(255,75,75,0.1),transparent_50%)]">
+        </div>
+        <div class="max-w-[1400px] mx-auto px-8 relative z-10">
+            <div class="text-center space-y-4 mb-20">
+                <p class="text-primary text-[10px] font-black uppercase tracking-[0.4em]">Citizen Preparedness</p>
+                <h2 class="text-6xl font-[900] tracking-tighter leading-none uppercase">Agniveer <span
+                        class="text-primary italic">Academy</span></h2>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
+                <div
+                    class="group p-8 rounded-[2.5rem] bg-white/5 border border-white/10 hover:border-primary/50 transition-all duration-500">
+                    <div
+                        class="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                        <span class="material-symbols-outlined text-primary text-3xl">local_fire_department</span>
+                    </div>
+                    <h3 class="text-2xl font-black mb-4 uppercase tracking-tighter">Fire Prevention 101</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed font-medium mb-8">Learn the fundamental protocols
+                        for managing dry vegetation and waste disposal in forest periphery zones.</p>
+                    <a href="https://www.ready.gov/wildfires" target="_blank" rel="noopener noreferrer"
+                        class="text-primary font-black uppercase tracking-widest text-[11px] flex items-center gap-2 group/link">
+                        Access Module <span
+                            class="material-symbols-outlined text-sm group-hover/link:translate-x-1 transition-transform">arrow_forward</span>
+                    </a>
+                </div>
+                <div
+                    class="group p-8 rounded-[2.5rem] bg-white/5 border border-white/10 hover:border-primary/50 transition-all duration-500">
+                    <div
+                        class="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                        <span class="material-symbols-outlined text-orange-500 text-3xl">emergency_home</span>
+                    </div>
+                    <h3 class="text-2xl font-black mb-4 uppercase tracking-tighter">Emergency Evacuation</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed font-medium mb-8">Critical survival steps for when
+                        a wildfire crosses the safety threshold. Regional safety coordinates included.</p>
+                    <a href="https://www.redcross.org/get-help/how-to-prepare-for-emergencies/types-of-emergencies/wildfire/wildfire-evacuation-checklist.html"
+                        target="_blank" rel="noopener noreferrer"
+                        class="text-orange-500 font-black uppercase tracking-widest text-[11px] flex items-center gap-2 group/link">
+                        Access Module <span
+                            class="material-symbols-outlined text-sm group-hover/link:translate-x-1 transition-transform">arrow_forward</span>
+                    </a>
+                </div>
+                <div
+                    class="group p-8 rounded-[2.5rem] bg-white/5 border border-white/10 hover:border-primary/50 transition-all duration-500">
+                    <div
+                        class="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-8 group-hover:scale-110 transition-transform">
+                        <span class="material-symbols-outlined text-emerald-500 text-3xl">volunteer_activism</span>
+                    </div>
+                    <h3 class="text-2xl font-black mb-4 uppercase tracking-tighter">Community Volunteer</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed font-medium mb-8">Join the national network of
+                        ground observers. Learn how to use the Agniveer app for precision reporting.</p>
+                    <a href="https://ndma.gov.in/Capacity_Building/Training/Aapda_Mitra" target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-emerald-500 font-black uppercase tracking-widest text-[11px] flex items-center gap-2 group/link">
+                        Register Now <span
+                            class="material-symbols-outlined text-sm group-hover/link:translate-x-1 transition-transform">arrow_forward</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer
+        class="py-24 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-white/5 transition-colors duration-500">
+        <div class="max-w-[1400px] mx-auto px-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
+                <!-- Column 1: Mission -->
+                <div class="space-y-8">
+                    <div class="flex items-center gap-3 text-primary">
+                        <span class="material-symbols-outlined text-4xl font-black">local_fire_department</span>
+                        <h2 class="text-2xl font-black uppercase tracking-tighter text-slate-900 dark:text-white">
+                            Agniveer</h2>
+                    </div>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                        Protecting the Indian Subcontinent through advanced satellite telemetry and predictive
+                        analytics.
+                        A national initiative for real-time forest fire mitigation.
+                    </p>
+                    <div class="flex gap-4">
+                        <a href="#"
+                            class="w-10 h-10 rounded-full border border-slate-200 dark:border-white/10 flex items-center justify-center hover:bg-primary hover:border-primary hover:text-white transition-all text-slate-400">
+                            <i class="fab fa-x-twitter"></i>
+                        </a>
+                        <a href="#"
+                            class="w-10 h-10 rounded-full border border-slate-200 dark:border-white/10 flex items-center justify-center hover:bg-primary hover:border-primary hover:text-white transition-all text-slate-400">
+                            <i class="fab fa-linkedin-in"></i>
+                        </a>
+                        <a href="#"
+                            class="w-10 h-10 rounded-full border border-slate-200 dark:border-white/10 flex items-center justify-center hover:bg-primary hover:border-primary hover:text-white transition-all text-slate-400">
+                            <i class="fab fa-github"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Column 2: Resources -->
+                <div>
+                    <h4
+                        class="text-[11px] font-black uppercase tracking-[0.3em] text-slate-900 dark:text-white mb-8 px-1">
+                        Resource Hub
+                    </h4>
+                    <ul
+                        class="space-y-4 text-[13px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                        <li><a href="#" class="hover:text-primary transition-colors">Deployment Protocols</a></li>
+                        <li><a href="#" class="hover:text-primary transition-colors">Satellite Telemetry API</a></li>
+                        <li><a href="#" class="hover:text-primary transition-colors">Regional Risk Reports</a></li>
+                        <li><a href="#" class="hover:text-primary transition-colors">Training Documentation</a></li>
+                        <li><a href="#" class="hover:text-primary transition-colors">Emergency Handbook</a></li>
+                    </ul>
+                </div>
+
+                <!-- Column 3: Contact -->
+                <div>
+                    <h4
+                        class="text-[11px] font-black uppercase tracking-[0.3em] text-slate-900 dark:text-white mb-8 px-1">
+                        Command
+                        Center</h4>
+                    <ul
+                        class="space-y-6 text-[13px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest">
+                        <li class="flex items-start gap-3">
+                            <span class="material-symbols-outlined text-primary text-xl">location_on</span>
+                            <span class="leading-relaxed">CUHP Shahpur Campus, Kangra,<br />Himachal Pradesh, India,
+                                176206</span>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-primary text-xl">mail</span>
+                            <a href="mailto:cuhpshapur@gmail.com"
+                                class="hover:text-primary lowercase tracking-normal">cuhpshapur@gmail.com</a>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Column 4: Newsletter -->
+                <div class="space-y-8">
+                    <h4 class="text-[11px] font-black uppercase tracking-[0.3em] text-slate-900 dark:text-white px-1">
+                        Join the Grid</h4>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 font-medium">Get critical status updates
+                        delivered to your
+                        terminal.</p>
+                    <div class="relative">
+                        <input type="email" placeholder="Email Address"
+                            class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 px-5 py-4 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600">
+                        <button
+                            class="absolute right-2 top-2 bottom-2 bg-slate-900 text-white px-5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-primary transition-all">Join</button>
+                    </div>
+                </div>
+            </div>
+
+            <div
+                class="pt-10 border-t border-slate-100 dark:border-white/5 flex flex-col md:flex-row items-center justify-between gap-8">
+                <p
+                    class="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-3">
+                    <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    © 2026 Agniveer Systems National Portal. System Status: Nominal
+                </p>
+                <div class="flex gap-8 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                    <a href="#" class="hover:text-primary transition-colors">Security Audit</a>
+                    <a href="#" class="hover:text-primary transition-colors">Data Privacy</a>
+                    <a href="#" class="hover:text-primary transition-colors">Terms of Service</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast Container -->
+    <div id="toastContainer"></div>
+
+    <!-- Scripts -->
+    <script src="js/firebase-config.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>

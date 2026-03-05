@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+firebase-admin
+supabase
+aiohttp
+twilio
+pydantic
+pydantic-settings
+passlib[bcrypt]
+PyJWT
+google-cloud-firestore
+google-auth
+onnxruntime
+numpy
+Pillow

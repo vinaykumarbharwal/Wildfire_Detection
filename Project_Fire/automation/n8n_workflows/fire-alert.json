@@ -1,0 +1,111 @@
+{
+  "name": "Wildfire Alert System",
+  "nodes": [
+    {
+      "parameters": {
+        "collection": "detections",
+        "event": "create"
+      },
+      "id": "firestore-trigger",
+      "name": "Firestore Trigger",
+      "type": "n8n-nodes-base.firestoreTrigger",
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={{$node[\"Firestore Trigger\"].json.latitude}},{{$node[\"Firestore Trigger\"].json.longitude}}&radius=50000&keyword=fire+station&key={{$env.GOOGLE_MAPS_API_KEY}}"
+      },
+      "id": "nearby-stations",
+      "name": "Get Nearby Stations",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "create",
+        "to": "={{$json.results[0].formatted_phone_number}}",
+        "from": "={{$env.TWILIO_PHONE_NUMBER}}",
+        "body": "=🔥 WILDFIRE DETECTED!\nSeverity: {{$node[\"Firestore Trigger\"].json.severity}}\nLocation: {{$node[\"Firestore Trigger\"].json.address}}\nConfidence: {{$node[\"Firestore Trigger\"].json.confidence * 100}}%\n\nMap: https://maps.google.com/?q={{$node[\"Firestore Trigger\"].json.latitude}},{{$node[\"Firestore Trigger\"].json.longitude}}\nImage: {{$node[\"Firestore Trigger\"].json.image_url}}"
+      },
+      "id": "send-sms",
+      "name": "Send SMS Alert",
+      "type": "n8n-nodes-base.twilio",
+      "position": [
+        650,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.EMAIL_USER}}",
+        "toEmail": "={{$json.results[0].email}}",
+        "subject": "=🚨 WILDFIRE ALERT - {{$node[\"Firestore Trigger\"].json.severity.toUpperCase()}}",
+        "text": "=A wildfire has been detected.\n\nLocation: {{$node[\"Firestore Trigger\"].json.address}}\nSeverity: {{$node[\"Firestore Trigger\"].json.severity}}\nConfidence: {{$node[\"Firestore Trigger\"].json.confidence * 100}}%\n\nMap: https://maps.google.com/?q={{$node[\"Firestore Trigger\"].json.latitude}},{{$node[\"Firestore Trigger\"].json.longitude}}\nImage: {{$node[\"Firestore Trigger\"].json.image_url}}"
+      },
+      "id": "send-email",
+      "name": "Send Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [
+        650,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "projectId": "={{$env.FIREBASE_PROJECT_ID}}",
+        "target": "topic",
+        "topic": "wildfire_alerts",
+        "notification": {
+          "title": "🔥 Wildfire Detected",
+          "body": "={{$node[\"Firestore Trigger\"].json.severity.toUpperCase()}} severity at {{$node[\"Firestore Trigger\"].json.address}}"
+        },
+        "data": {
+          "parameters": [
+            {
+              "name": "detection_id",
+              "value": "={{$node[\"Firestore Trigger\"].json.id}}"
+            },
+            {
+              "name": "severity",
+              "value": "={{$node[\"Firestore Trigger\"].json.severity}}"
+            },
+            {
+              "name": "latitude",
+              "value": "={{$node[\"Firestore Trigger\"].json.latitude}}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{$node[\"Firestore Trigger\"].json.longitude}}"
+            },
+            {
+              "name": "click_action",
+              "value": "OPEN_DETECTION"
+            }
+          ]
+        }
+      },
+      "id": "send-push",
+      "name": "Send Push Notification",
+      "type": "n8n-nodes-base.firebaseCloudMessaging",
+      "position": [
+        650,
+        600
+      ],
+      "credentials": {
+        "googleFirebaseCloudMessagingApi": {
+          "id": "PLACEHOLDER_CREDENTIAL_ID",
+          "name": "Firebase Service Account"
+        }
+      }
+    }
+  ]
+}

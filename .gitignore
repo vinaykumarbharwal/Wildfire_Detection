@@ -1,0 +1,77 @@
+# ==========================================
+# PROJECT FIRE - GLOBAL GITIGNORE
+# ==========================================
+
+# --- SECURITY & CREDENTIALS ---
+.env
+**/.env
+.env.*
+firebase-credentials.json
+**/firebase-credentials.json
+service-account.json
+**/service-account.json
+*.pem
+*.key
+backend/api/assets/config/*.json
+
+# --- ML MODELS & ASSETS ---
+# Large binary files should not be committed
+*.onnx
+*.pt
+*.tflite
+*.h5
+*.weights
+backend/api/assets/models/
+mobile_app/flutter_app/assets/models/
+
+# --- PYTHON ---
+__pycache__/
+**/*/__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env/
+.venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- FLUTTER & DART ---
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+/build/
+**/build/
+ios/.generated/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+.flutter-plugins
+.flutter-plugins-dependencies
+**/*.iml
+
+# --- FRONTEND / NODE ---
+node_modules/
+.next/
+out/
+.vercel
+*.log
+
+# --- SYSTEM & TEMP ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+tmp/
+temp/
+.idea/
+.vscode/
+*.history
+*.swp
+*.bak
