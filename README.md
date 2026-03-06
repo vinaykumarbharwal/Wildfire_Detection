@@ -107,7 +107,7 @@ Project_Fire/
 │       └── services/           # DetectionService (TFLite), ApiService
 │
 ├── automation/                 # n8n workflow automation
-│   ├── n8n_workflows/          # fire-alert.json, station-notification.json
+│   ├── n8n_workflows/          # fire-alert.json
 │   └── N8N_PERMANENT_SETUP.md  # Guide for setting up permanent FCM credentials
 │
 ├── database/firebase/          # Firebase security rules
