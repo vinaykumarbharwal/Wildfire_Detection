@@ -1,17 +1,25 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import '../services/detection_service.dart';
 import '../services/api_service.dart';
-import '../utils/constants.dart';
+
+// UI Constants from Tailwind Mockup
+const Color kPrimaryColor = Color(0xFFF48C25);
+const Color kBackgroundLight = Color(0xFFF8F7F5);
+const Color kBackgroundDark = Color(0xFF221910);
+const Color kSuccessGreen = Color(0xFF22C55E);
+const Color kAlertRed = Color(0xFFEF4444);
+const Color kEmergencyRed = Color(0xFFDC2626);
 
 class CameraScreen extends StatefulWidget {
   @override
   _CameraScreenState createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver {
+class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   bool _isDetecting = false;
@@ -20,22 +28,25 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
   String _severity = 'low';
   bool _modelLoaded = false;
   bool _isLoading = true;
+  
+  late AnimationController _scannerAnimationController;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeCamera();
+    
+    _scannerAnimationController = AnimationController(
+        vsync: this, duration: Duration(seconds: 2))..repeat(reverse: true);
   }
 
   Future<void> _initializeCamera() async {
     try {
       _cameras = await availableCameras();
-      _controller = CameraController(_cameras![0], ResolutionPreset.medium);
+      _controller = CameraController(_cameras![0], ResolutionPreset.high, enableAudio: false);
       
       await _controller!.initialize();
-      
-      // Cloud model is always "ready"
       _modelLoaded = true;
       
       setState(() {
@@ -43,7 +54,6 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       });
     } catch (e) {
       print('Camera initialization error: $e');
-      _showErrorDialog('Camera Error', 'Failed to initialize camera: $e');
     }
   }
 
@@ -60,7 +70,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
       final detectionService = Provider.of<DetectionService>(context, listen: false);
       final apiService = Provider.of<ApiService>(context, listen: false);
       
-      // Step 1: Run AI inference (sent to /api/inference/detect)
+      // Step 1: Run AI inference
       var result = await detectionService.detectFire(image, apiService);
       
       if (!mounted) return;
@@ -75,7 +85,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
           _severity = severity;
         });
 
-        // Step 2: Report fire to backend → saves to Firestore, uploads image, sends alerts
+        // Step 2: Report fire to backend
         try {
           await apiService.reportDetection(
             detection: {
@@ -85,22 +95,23 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
             },
             imageFile: File(image.path),
           );
-          print('✅ Fire detection reported to backend');
         } catch (reportError) {
           print('⚠️ Fire detected but failed to report: $reportError');
-          // Still show the alert even if reporting fails
         }
         
-        _showFireAlert(result);
+        _showFireAlert(result, image.path);
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No fire detected in this frame.')),
+          SnackBar(
+            content: Text('No fire detected in this frame.', style: TextStyle(fontWeight: FontWeight.bold)),
+            backgroundColor: kTextDark,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } catch (e) {
       print('Detection error: $e');
-      _showErrorDialog('Detection Error', 'Failed to process image: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -117,70 +128,185 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     return 'low';
   }
 
-
-  void _showFireAlert(Map<String, dynamic> detection) {
-    showDialog(
+  void _showFireAlert(Map<String, dynamic> detection, String imagePath) {
+    showGeneralDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Row(
+      barrierColor: kBackgroundDark.withOpacity(0.9),
+      transitionDuration: Duration(milliseconds: 300),
+      pageBuilder: (context, anim1, anim2) {
+        return Scaffold(
+          backgroundColor: Colors.white,
+          body: Column(
             children: [
-              Icon(Icons.warning, color: Colors.red, size: 30),
-              SizedBox(width: 10),
-              Text('🔥 FIRE DETECTED!'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Confidence: ${(_confidence * 100).toStringAsFixed(1)}%'),
-              SizedBox(height: 10),
-              LinearProgressIndicator(
-                value: _confidence,
-                backgroundColor: Colors.grey[300],
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  _confidence > 0.7 ? Colors.red : Colors.orange,
+              // Header
+              Container(
+                padding: EdgeInsets.only(top: 50, left: 16, right: 16, bottom: 16),
+                decoration: BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: Colors.grey[200]!))),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    IconButton(icon: Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
+                    Text('EMERGENCY DASHBOARD', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1)),
+                    IconButton(icon: Icon(Icons.share_outlined), onPressed: () {}),
+                  ],
                 ),
               ),
-              SizedBox(height: 10),
-              Text('Severity: ${(detection['severity'] ?? 'LOW').toUpperCase()}'),
-              SizedBox(height: 20),
-              Text('📍 Location captured'),
-              Text('📸 Image saved and reported'),
+              
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      // Image with glowing border
+                      Container(
+                        margin: EdgeInsets.all(16),
+                        height: 220,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: kEmergencyRed, width: 2),
+                          boxShadow: [
+                            BoxShadow(color: kEmergencyRed.withOpacity(0.4), blurRadius: 20, spreadRadius: 0),
+                          ],
+                          image: DecorationImage(image: FileImage(File(imagePath)), fit: BoxFit.cover),
+                        ),
+                        child: Stack(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [kBackgroundDark.withOpacity(0.8), Colors.transparent]),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 12,
+                              left: 12,
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(color: kEmergencyRed.withOpacity(0.9), borderRadius: BorderRadius.circular(20)),
+                                child: Row(
+                                  children: [
+                                    Container(width: 8, height: 8, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle)),
+                                    SizedBox(width: 8),
+                                    Text('LIVE FEED: DRONE-04', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Critical Alert Banner
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Container(
+                          width: double.infinity,
+                          padding: EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: kEmergencyRed,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [BoxShadow(color: kEmergencyRed.withOpacity(0.2), blurRadius: 10, offset: Offset(0, 4))],
+                          ),
+                          child: Column(
+                            children: [
+                              Text('CRITICAL FIRE ALERT', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: -0.5)),
+                              SizedBox(height: 4),
+                              Text('Immediate Evacuation Recommended for Nearby Zones', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w500), textAlign: TextAlign.center),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                      // Data Grid
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Expanded(child: _buildAlertStatCard('Severity', _severity.toUpperCase(), kEmergencyRed)),
+                            SizedBox(width: 16),
+                            Expanded(child: _buildAlertStatCard('Confidence', '${(_confidence * 100).toStringAsFixed(0)}%', kTextDark)),
+                          ],
+                        ),
+                      ),
+                      
+                      // Location
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Container(
+                          padding: EdgeInsets.all(16),
+                          decoration: BoxDecoration(color: Colors.orange[50], border: Border.all(color: Colors.orange[100]!), borderRadius: BorderRadius.circular(16)),
+                          child: Row(
+                            children: [
+                              Container(padding: EdgeInsets.all(8), decoration: BoxDecoration(color: kPrimaryColor.withOpacity(0.2), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.location_on, color: kPrimaryColor)),
+                              SizedBox(width: 16),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('LOCATION', style: TextStyle(color: kPrimaryColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                                  Text('Sierra Nevada', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextDark)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                      SizedBox(height: 32),
+                      
+                      // Action Buttons
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: ElevatedButton.icon(
+                          onPressed: () {},
+                          icon: Icon(Icons.call, color: Colors.white),
+                          label: Text('Call Emergency Services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kEmergencyRed,
+                            minimumSize: Size(double.infinity, 56),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.pushReplacementNamed(context, '/dashboard');
+                          },
+                          icon: Icon(Icons.map, color: kPrimaryColor),
+                          label: Text('View on Map', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kTextDark)),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: Colors.grey[300]!, width: 2),
+                            minimumSize: Size(double.infinity, 56),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 40),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('OK'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.pushNamed(context, '/dashboard');
-              },
-              child: Text('View Dashboard'),
-            ),
-          ],
         );
       },
     );
   }
 
-  void _showErrorDialog(String title, String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('OK'),
-          ),
+  Widget _buildAlertStatCard(String title, String value, Color valueColor) {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.orange[50], border: Border.all(color: Colors.orange[100]!), borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title.toUpperCase(), style: TextStyle(color: kPrimaryColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+          SizedBox(height: 4),
+          Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: valueColor)),
         ],
       ),
     );
@@ -188,97 +314,191 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 20),
-              Text('Initializing camera and model...'),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return Scaffold(
-        body: Center(
-          child: Text('Camera not available'),
-        ),
-      );
+    if (_isLoading || _controller == null || !_controller!.value.isInitialized) {
+      return Scaffold(backgroundColor: kBackgroundDark, body: Center(child: CircularProgressIndicator(color: kPrimaryColor)));
     }
 
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Stack(
+        fit: StackFit.expand,
         children: [
-          // Camera preview
+          // 1. Full Screen Camera Feed
           CameraPreview(_controller!),
           
-          // Detection overlay
-          // Floating Scan Button
-          Positioned(
-            bottom: 120,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: FloatingActionButton.large(
-                onPressed: _isDetecting ? null : _scanNow,
-                backgroundColor: _isDetecting ? Colors.grey : Colors.red,
-                child: _isDetecting 
-                  ? CircularProgressIndicator(color: Colors.white)
-                  : Icon(Icons.search, size: 40, color: Colors.white),
+          // 2. HUD Overlay Gradient
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.white.withOpacity(0.9), Colors.transparent, Colors.white.withOpacity(0.4)],
+                stops: [0.0, 0.2, 1.0],
               ),
             ),
           ),
           
-          // Top bar
+          // 3. Top Header
           Positioned(
-            top: 50,
-            left: 20,
+            top: 50, left: 24, right: 24,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _GlassIconButton(icon: Icons.arrow_back_ios_new, onTap: () => Navigator.pop(context)),
+                Column(
+                  children: [
+                    Text('AEROSCAN V2.4', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 2, color: kTextDark)),
+                    Row(
+                      children: [
+                        Container(width: 8, height: 8, decoration: BoxDecoration(color: kSuccessGreen, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kSuccessGreen, blurRadius: 8)])),
+                        SizedBox(width: 8),
+                        Text('SYSTEM ONLINE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.blueGrey[600], letterSpacing: 1)),
+                      ],
+                    ),
+                  ],
+                ),
+                _GlassIconButton(icon: Icons.settings, onTap: () {}),
+              ],
+            ),
+          ),
+          
+          // 4. Center Bounding Box Scanner
+          Center(
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              width: 280,
+              height: 380,
               decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: kPrimaryColor, width: 2),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(color: kPrimaryColor.withOpacity(0.1), blurRadius: 20, inset: true),
+                  BoxShadow(color: kPrimaryColor.withOpacity(0.1), blurRadius: 10),
+                ],
               ),
-              child: Row(
+              child: Stack(
                 children: [
-                  Icon(Icons.fiber_manual_record, color: _modelLoaded ? Colors.green : Colors.red, size: 12),
-                  SizedBox(width: 5),
-                  Text(
-                    _modelLoaded ? 'Model Ready' : 'Model Loading...',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
-                  ),
+                  // Corner thick borders
+                  _buildCorner(top: -2, left: -2, border: Border(top: BorderSide(color: kPrimaryColor, width: 4), left: BorderSide(color: kPrimaryColor, width: 4))),
+                  _buildCorner(top: -2, right: -2, border: Border(top: BorderSide(color: kPrimaryColor, width: 4), right: BorderSide(color: kPrimaryColor, width: 4))),
+                  _buildCorner(bottom: -2, left: -2, border: Border(bottom: BorderSide(color: kPrimaryColor, width: 4), left: BorderSide(color: kPrimaryColor, width: 4))),
+                  _buildCorner(bottom: -2, right: -2, border: Border(bottom: BorderSide(color: kPrimaryColor, width: 4), right: BorderSide(color: kPrimaryColor, width: 4))),
+                  
+                  // Animated Scanner Line
+                  if (_isDetecting)
+                    AnimatedBuilder(
+                      animation: _scannerAnimationController,
+                      builder: (context, child) {
+                        return Positioned(
+                          top: _scannerAnimationController.value * 370,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            height: 2,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(colors: [Colors.transparent, kPrimaryColor, Colors.transparent]),
+                              boxShadow: [BoxShadow(color: kPrimaryColor, blurRadius: 15, spreadRadius: 2)],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    
+                  // Floating AI Data Panel
+                  if (_isDetecting)
+                    Positioned(
+                      bottom: 24, left: 24, right: 24,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                          child: Container(
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.7), border: Border.all(color: kPrimaryColor.withOpacity(0.3)), borderRadius: BorderRadius.circular(16)),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text('Scanning in progress...', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kTextDark)),
+                                    SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 90,
+                                          height: 6,
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(10),
+                                            child: LinearProgressIndicator(value: null, backgroundColor: kPrimaryColor.withOpacity(0.2), valueColor: AlwaysStoppedAnimation<Color>(kPrimaryColor)),
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text('CONFIDENCE: --%', style: TextStyle(color: kPrimaryColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                Icon(Icons.biotech, color: kPrimaryColor),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
           
-          // Controls at bottom
+          // 5. Bottom Controls
           Positioned(
-            bottom: 30,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            bottom: 40, left: 0, right: 0,
+            child: Column(
               children: [
-                _buildControlButton(
-                  icon: Icons.history,
-                  label: 'History',
-                  onTap: () => Navigator.pushNamed(context, '/history'),
+                // Quick Environment Stats
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildEnvStat('TEMP', '28°C')),
+                      SizedBox(width: 16),
+                      Expanded(child: _buildEnvStat('HUMIDITY', '14%', isAlert: true)),
+                      SizedBox(width: 16),
+                      Expanded(child: _buildEnvStat('WIND', '12km/h')),
+                    ],
+                  ),
                 ),
-                _buildControlButton(
-                  icon: Icons.dashboard,
-                  label: 'Dashboard',
-                  onTap: () => Navigator.pushNamed(context, '/dashboard'),
-                ),
-                _buildControlButton(
-                  icon: Icons.settings,
-                  label: 'Settings',
-                  onTap: () {},
+                SizedBox(height: 30),
+                
+                // Huge Scan Button
+                GestureDetector(
+                  onTap: _isDetecting ? null : _scanNow,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (_isDetecting) Container(width: 96, height: 96, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kPrimaryColor.withOpacity(0.2), width: 2))),
+                      Container(width: 112, height: 112, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: kPrimaryColor.withOpacity(0.1), width: 1))),
+                      AnimatedContainer(
+                        duration: Duration(milliseconds: 200),
+                        width: _isDetecting ? 70 : 80,
+                        height: _isDetecting ? 70 : 80,
+                        decoration: BoxDecoration(
+                          color: _isDetecting ? Colors.grey[400] : kPrimaryColor,
+                          shape: BoxShape.circle,
+                          boxShadow: _isDetecting ? [] : [BoxShadow(color: kPrimaryColor.withOpacity(0.5), blurRadius: 30)],
+                        ),
+                        child: Icon(Icons.local_fire_department, color: kBackgroundDark, size: 40),
+                      ),
+                      Positioned(
+                        bottom: -24,
+                        child: Text(
+                          _isDetecting ? 'SCANNING...' : 'TAP TO SCAN',
+                          style: TextStyle(color: kPrimaryColor, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -288,47 +508,66 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildControlButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(25),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            SizedBox(width: 5),
-            Text(label, style: TextStyle(color: Colors.white)),
-          ],
+  Widget _buildCorner({double? top, double? bottom, double? left, double? right, required Border border}) {
+    return Positioned(
+      top: top, bottom: bottom, left: left, right: right,
+      child: Container(width: 20, height: 20, decoration: BoxDecoration(border: border)),
+    );
+  }
+
+  Widget _buildEnvStat(String label, String value, {bool isAlert = false}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.7),
+            border: Border.all(color: isAlert ? kAlertRed.withOpacity(0.3) : kPrimaryColor.withOpacity(0.2)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.blueGrey[500], letterSpacing: 1)),
+              SizedBox(height: 2),
+              Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kTextDark)),
+            ],
+          ),
         ),
       ),
     );
   }
 
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _scannerAnimationController.dispose();
     _controller?.dispose();
     super.dispose();
   }
+}
+
+class _GlassIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _GlassIconButton({required this.icon, required this.onTap});
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null || !_controller!.value.isInitialized) return;
-    
-    if (state == AppLifecycleState.inactive) {
-      _controller?.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
-    }
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.7), border: Border.all(color: kPrimaryColor.withOpacity(0.3)), shape: BoxShape.circle),
+            child: Icon(icon, color: kTextDark, size: 20),
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -1,8 +1,14 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
-
 import '../providers/dashboard_provider.dart';
+
+// UI Constants from Tailwind Mockup
+const Color kPrimaryColor = Color(0xFFF48C25);
+const Color kBackgroundLight = Color(0xFFF8F7F5);
+const Color kBackgroundDark = Color(0xFF221910);
+const Color kTextDark = Color(0xFF0F172A); // slate-900
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -27,134 +33,64 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Dashboard'),
-        backgroundColor: Colors.red,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            onPressed: _loadData,
-          ),
-        ],
-      ),
+      backgroundColor: kBackgroundLight,
       body: Consumer<DashboardProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading && provider.stats.isEmpty) {
-            return Center(child: CircularProgressIndicator());
-          }
-          
-          if (provider.errorMessage != null && provider.stats.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(provider.errorMessage!, textAlign: TextAlign.center),
-                  SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _loadData,
-                    child: Text('Retry'),
-                  ),
-                ],
-              ),
-            );
+            return Center(child: CircularProgressIndicator(color: kPrimaryColor));
           }
 
+          final activeFires = provider.stats['active_fires']?.toString() ?? '0';
+          
           return RefreshIndicator(
             onRefresh: _loadData,
-            child: SingleChildScrollView(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (provider.errorMessage != null)
-                    Container(
-                      padding: EdgeInsets.all(8),
-                      margin: EdgeInsets.only(bottom: 16),
-                      color: Colors.red[100],
-                      child: Row(
-                        children: [
-                          Icon(Icons.error, color: Colors.red),
-                          SizedBox(width: 8),
-                          Expanded(child: Text(provider.errorMessage!, style: TextStyle(color: Colors.red))),
-                          IconButton(
-                            icon: Icon(Icons.close, color: Colors.red),
-                            onPressed: () => provider.clearError(),
+            color: kPrimaryColor,
+            child: Stack(
+              children: [
+                // Scrollable Content
+                SingleChildScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 100), // Space for nav
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHeader(),
+                        
+                        // Error message if any
+                        if (provider.errorMessage != null)
+                          Container(
+                            margin: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.red[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.error_outline, color: Colors.red, size: 20),
+                                SizedBox(width: 8),
+                                Expanded(child: Text(provider.errorMessage!, style: TextStyle(color: Colors.red, fontSize: 13))),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+
+                        _buildMapSection(),
+                        _buildStatsGrid(activeFires),
+                      ],
                     ),
-                  // Stats cards
-                  Text(
-                    'Statistics',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 10),
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: NeverScrollableScrollPhysics(),
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.5,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    children: [
-                      _buildStatCard(
-                        'Total Detections',
-                        provider.stats['total_detections']?.toString() ?? '0',
-                        Icons.fireplace,
-                        Colors.red,
-                      ),
-                      _buildStatCard(
-                        'Active Fires',
-                        provider.stats['active_fires']?.toString() ?? '0',
-                        Icons.warning,
-                        Colors.orange,
-                      ),
-                      _buildStatCard(
-                        'Today',
-                        provider.stats['today_detections']?.toString() ?? '0',
-                        Icons.today,
-                        Colors.blue,
-                      ),
-                      _buildStatCard(
-                        'Verified',
-                        provider.stats['by_status']?['verified']?.toString() ?? '0',
-                        Icons.verified,
-                        Colors.green,
-                      ),
-                    ],
-                  ),
-                  
-                  SizedBox(height: 20),
-                  
-                  // Severity breakdown
-                  Text(
-                    'By Severity',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10),
-                  _buildSeverityChart(provider.stats),
-                  
-                  SizedBox(height: 20),
-                  
-                  // Recent detections
-                  Text(
-                    'Recent Detections',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10),
-                  provider.recentDetections.isEmpty
-                      ? Center(child: Text('No detections yet'))
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          physics: NeverScrollableScrollPhysics(),
-                          itemCount: provider.recentDetections.length,
-                          itemBuilder: (context, index) {
-                            var detection = provider.recentDetections[index];
-                            return _buildDetectionTile(detection);
-                          },
-                        ),
-                ],
-              ),
+                ),
+                
+                // Custom Bottom Navigation
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _buildBottomNav(context),
+                ),
+              ],
             ),
           );
         },
@@ -162,136 +98,369 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 30),
-            SizedBox(height: 5),
-            Text(
-              value,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              label,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSeverityChart(Map<String, dynamic> stats) {
-    var bySeverity = stats['by_severity'] ?? {};
-    
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildSeverityBar('Critical', bySeverity['critical'] ?? 0, Colors.red[900]!, stats),
-            _buildSeverityBar('High', bySeverity['high'] ?? 0, Colors.red, stats),
-            _buildSeverityBar('Medium', bySeverity['medium'] ?? 0, Colors.orange, stats),
-            _buildSeverityBar('Low', bySeverity['low'] ?? 0, Colors.green, stats),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSeverityBar(String label, int count, Color color, Map<String, dynamic> stats) {
-    double percentage = stats['total_detections'] != null && stats['total_detections'] > 0
-        ? count / stats['total_detections']
-        : 0;
-    
+  Widget _buildHeader() {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(24, 60, 24, 24),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          SizedBox(width: 60, child: Text(label)),
-          Expanded(
-            child: Stack(
-              children: [
-                Container(
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
+          Row(
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: kPrimaryColor.withOpacity(0.6), width: 2),
+                      image: DecorationImage(
+                        image: NetworkImage("https://ui-avatars.com/api/?name=Alex&background=f48c25&color=fff"),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
-                ),
-                Container(
-                  height: 20,
-                  width: MediaQuery.of(context).size.width * 0.5 * percentage,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(10),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.green[500],
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+              SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'GOOD MORNING',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.5,
+                      color: Colors.blueGrey[500],
+                    ),
+                  ),
+                  Text(
+                    'Hello, Alex',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: kTextDark,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          SizedBox(width: 10),
-          Text('$count'),
+          _GlassCard(
+            padding: EdgeInsets.all(10),
+            borderRadius: 12,
+            child: Icon(Icons.notifications_outlined, color: kPrimaryColor),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDetectionTile(Map<String, dynamic> detection) {
-    return Card(
-      margin: EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: _getSeverityColor(detection['severity']),
-          child: Icon(Icons.warning, color: Colors.white, size: 20),
+  Widget _buildMapSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Container(
+        width: double.infinity,
+        height: 380,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+          color: kPrimaryColor.withOpacity(0.05),
+          image: DecorationImage(
+            // Fallback map image simulating the thermal/satellite view
+            image: NetworkImage("https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=800"),
+            fit: BoxFit.cover,
+            colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.4), BlendMode.darken),
+          ),
         ),
-        title: Text(detection['address'] ?? 'Unknown location'),
-        subtitle: Text(
-          '${detection['severity']?.toUpperCase() ?? 'UNKNOWN'} • '
-          '${(detection['confidence'] * 100).toStringAsFixed(1)}% confidence',
+        child: Stack(
+          children: [
+            // Map Gradient Overlay
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                gradient: RadialGradient(
+                  colors: [kPrimaryColor.withOpacity(0.1), Colors.transparent],
+                  radius: 0.7,
+                ),
+              ),
+            ),
+            
+            // Map controls (top right)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: Column(
+                children: [
+                  _GlassCard(padding: EdgeInsets.all(8), borderRadius: 8, child: Icon(Icons.layers_outlined, size: 20, color: Colors.white)),
+                  SizedBox(height: 8),
+                  _GlassCard(padding: EdgeInsets.all(8), borderRadius: 8, child: Icon(Icons.my_location, size: 20, color: Colors.white)),
+                ],
+              ),
+            ),
+
+             // Hotspot Indicator
+             Positioned(
+              top: 100,
+              left: 120,
+              child: Column(
+                children: [
+                  Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: kPrimaryColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: kPrimaryColor.withOpacity(0.6), blurRadius: 15, spreadRadius: 5)],
+                    ),
+                    child: Center(child: Container(width: 6, height: 6, decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle))),
+                  ),
+                  SizedBox(height: 8),
+                  _GlassCard(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    borderRadius: 4,
+                    child: Text('ACTIVE: ZONE A', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: kPrimaryColor)),
+                  )
+                ],
+              ),
+            ),
+
+            // Scanning Region Footer
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: _GlassCard(
+                padding: EdgeInsets.all(16),
+                borderRadius: 16,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: kPrimaryColor.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
+                          child: Icon(Icons.radar, color: kPrimaryColor),
+                        ),
+                        SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Scanning Region', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.blueGrey[600])),
+                            Text('Sierra Nevada North', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kTextDark)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    Icon(Icons.arrow_forward_ios, size: 16, color: kPrimaryColor),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
-        trailing: Text(
-          _formatTime(detection['timestamp']),
-          style: TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        onTap: () {
-          // Show details
-        },
       ),
     );
   }
 
-  Color _getSeverityColor(String? severity) {
-    switch (severity) {
-      case 'critical': return Color(0xFF8B0000);
-      case 'high': return Color(0xFFDC3545);
-      case 'medium': return Color(0xFFFFC107);
-      case 'low': return Color(0xFF28A745);
-      default: return Colors.grey;
-    }
+  Widget _buildStatsGrid(String activeFires) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          // Active Fires Full Width Card
+          _GlassCard(
+            padding: EdgeInsets.all(20),
+            borderRadius: 24,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Active Wildfires', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.blueGrey[600])),
+                    SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(activeFires, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.red[500], height: 1)),
+                        SizedBox(width: 6),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text('Critical Zones', style: TextStyle(fontSize: 13, color: Colors.blueGrey[800])),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.red[500]!.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+                  child: Icon(Icons.local_fire_department, color: Colors.red[500], size: 32),
+                ),
+              ],
+            ),
+          ),
+          
+          SizedBox(height: 16),
+          
+          // Row of Two Stats
+          Row(
+            children: [
+              Expanded(
+                child: _GlassCard(
+                  padding: EdgeInsets.all(20),
+                  borderRadius: 24,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: Colors.green[500]!.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                        child: Icon(Icons.health_and_safety, color: Colors.green[500]),
+                      ),
+                      SizedBox(height: 12),
+                      Text('Safe Zones', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.blueGrey[600])),
+                      Text('94.2%', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: kTextDark)),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: _GlassCard(
+                  padding: EdgeInsets.all(20),
+                  borderRadius: 24,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(color: kPrimaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                        child: Icon(Icons.air, color: kPrimaryColor),
+                      ),
+                      SizedBox(height: 12),
+                      Text('Air Quality', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.blueGrey[600])),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('Moderate', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kTextDark)),
+                          SizedBox(width: 4),
+                          Text('42', style: TextStyle(fontSize: 12, color: kPrimaryColor)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
-  String _formatTime(String? timestamp) {
-    if (timestamp == null) return '';
-    try {
-      var time = DateTime.parse(timestamp);
-      var now = DateTime.now();
-      var difference = now.difference(time);
-      
-      if (difference.inHours < 24) {
-        return '${difference.inHours}h ago';
-      } else {
-        return '${difference.inDays}d ago';
-      }
-    } catch (e) {
-      return '';
-    }
+  Widget _buildBottomNav(BuildContext context) {
+    return _GlassCard(
+      borderRadius: 0,
+      padding: EdgeInsets.only(top: 16, bottom: 32, left: 24, right: 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _buildNavItem(Icons.grid_view, 'DASHBOARD', true, () {}),
+          _buildNavItem(Icons.map_outlined, 'EXPLORER', false, () {}),
+          
+          // Center Big Primary Button
+          GestureDetector(
+            onTap: () => Navigator.pushNamed(context, '/camera'),
+            child: Container(
+              margin: EdgeInsets.only(bottom: 24),
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: kPrimaryColor,
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: kPrimaryColor.withOpacity(0.4), blurRadius: 15, offset: Offset(0, 8))],
+              ),
+              child: Icon(Icons.add, color: kBackgroundDark, size: 32),
+            ),
+          ),
+          
+          _buildNavItem(Icons.history, 'HISTORY', false, () => Navigator.pushNamed(context, '/history')),
+          _buildNavItem(Icons.settings_outlined, 'SYSTEM', false, () {}),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(IconData icon, String label, bool isActive, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: isActive ? kPrimaryColor : Colors.blueGrey[400]),
+          SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+               color: isActive ? kPrimaryColor : Colors.blueGrey[400],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Reusable Glassmorphism Card
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  final double borderRadius;
+
+  const _GlassCard({required this.child, required this.padding, required this.borderRadius});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(color: kPrimaryColor.withOpacity(0.2)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 6,
+                offset: Offset(0, 4),
+              )
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
   }
 }
