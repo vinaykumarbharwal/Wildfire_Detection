@@ -1,6 +1,6 @@
 (function () {
     // Application state
-    const API_BASE_URL = 'http://localhost:8000/api';
+    const API_BASE_URL = 'http://127.0.0.1:8000/api';
     let detections = [];
     let currentFilter = 'all';
     let charts = {};
@@ -93,15 +93,23 @@
         // Theme Toggle
         document.getElementById('themeToggle')?.addEventListener('click', () => {
             const isDark = document.documentElement.classList.toggle('dark');
-            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            try {
+                localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            } catch (e) {
+                console.warn('localStorage access denied, theme not saved');
+            }
             if (typeof MapController !== 'undefined') {
                 MapController.toggleMapTheme(isDark);
             }
         });
 
         // Check saved theme
-        if (localStorage.getItem('theme') === 'dark') {
-            document.documentElement.classList.add('dark');
+        try {
+            if (localStorage.getItem('theme') === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+        } catch (e) {
+            console.warn('localStorage access denied, using default theme');
         }
 
         // Incident Form
