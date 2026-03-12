@@ -305,7 +305,15 @@
     async function loadDetections() {
         try {
             const response = await fetch(`${API_BASE_URL}/detections?limit=50`);
-            detections = await response.json();
+            const rawDetections = await response.json();
+
+            // Sanitize detections to handle legacy/missing assets
+            detections = rawDetections.map(d => ({
+                ...d,
+                image_url: (d.image_url && d.image_url.includes('placeholder.jpg'))
+                    ? 'https://raw.githubusercontent.com/vinaykumarbharwal/Fire_GITHUB/main/Project_Fire/mobile_app/flutter_app/assets/images/placeholder_fire.jpg'
+                    : d.image_url
+            }));
 
             updateDetectionsGrid(detections);
             updateIncidentTable(detections);
@@ -372,7 +380,7 @@
         <div class="detection-card group cursor-pointer" data-id="${detection.id}" onclick="showDetectionDetails('${detection.id}')">
             <div class="relative overflow-hidden aspect-video rounded-2xl mb-2">
                 <img src="${imageUrl}" alt="Fire detection" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
-                     onerror="this.src='https://via.placeholder.com/400x225?text=No+Image+Available'">
+                     onerror="this.onerror=null; this.src='https://via.placeholder.com/400x225?text=No+Image+Available'">
                 <div class="absolute top-4 left-4 z-10">
                     <span class="severity-badge ${severityClass}">
                         ${severity.toUpperCase()}
@@ -454,7 +462,8 @@
         modal.innerHTML = `
         <div class="bg-white w-full max-w-2xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/20 animate-scale-up">
             <div class="relative h-64 overflow-hidden">
-                <img src="${imageUrl}" alt="Detection" class="w-full h-full object-cover">
+                <img src="${imageUrl}" alt="Detection" class="w-full h-full object-cover"
+                     onerror="this.onerror=null; this.src='https://via.placeholder.com/400x225?text=No+Image+Available'">
                 <div class="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent"></div>
                 <button class="absolute top-6 right-6 w-10 h-10 bg-white/20 backdrop-blur-md hover:bg-white/40 text-white rounded-full flex items-center justify-center transition-all" onclick="this.closest('.fixed').remove()">
                     <span class="material-symbols-outlined">close</span>
