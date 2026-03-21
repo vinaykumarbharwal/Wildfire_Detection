@@ -50,7 +50,7 @@ async def redoc_html():
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your domains
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], # Only allow local dashboard
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,8 +104,8 @@ async def get_stats():
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    logger.error(f"Global error: {exc}")
+    logger.error(f"Global error: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"message": "An internal error occurred", "detail": str(exc)}
+        content={"message": "An internal error occurred", "detail": "Consult server logs for support ID."}
     )

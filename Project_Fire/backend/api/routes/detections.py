@@ -35,10 +35,10 @@ async def report_detection(
     confidence: float = Form(...),
     image: UploadFile = File(...),
     reported_by: Optional[str] = Form(None),
-    current_user: Optional[dict] = Depends(get_optional_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
-    Report a new fire detection from mobile app
+    Report a new fire detection from mobile app (Authenticated)
     """
     try:
         # Validate inputs
@@ -58,8 +58,6 @@ async def report_detection(
         image_path = f"detections/{detection_id}.{image_extension}"
         
         # Save image temporarily
-        temp_file = f"/tmp/{detection_id}.{image_extension}"
-        # Ensure tmp directory exists (use Windows-compatible temp path)
         import tempfile
         temp_dir = tempfile.gettempdir()
         temp_file = os.path.join(temp_dir, f"{detection_id}.{image_extension}")
@@ -76,7 +74,8 @@ async def report_detection(
         finally:
             # Always clean up temp file
             try:
-                os.remove(temp_file)
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
             except Exception:
                 pass
         
@@ -108,8 +107,8 @@ async def report_detection(
             'confidence': confidence,
             'image_url': image_url,
             'timestamp': datetime.now(),
-            'reported_by': reported_by or (current_user.get('uid') if current_user else 'anonymous'),
-            'reporter_name': (current_user.get('name') if current_user else 'Anonymous'),
+            'reported_by': current_user.get('uid'),
+            'reporter_name': current_user.get('name'),
             'status': 'pending',
             'severity': severity,
             'nearby_stations': nearby_stations[:5],  # Top 5 nearest
@@ -139,7 +138,7 @@ async def report_detection(
         raise
     except Exception as e:
         print(f"Error reporting detection: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal processing error")
 
 @router.get("/", response_model=List[DetectionResponse])
 async def get_detections(
