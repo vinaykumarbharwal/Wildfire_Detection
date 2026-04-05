@@ -1,11 +1,117 @@
+/**
+ * Agniveer — Admin Tactical Command Hub Logic
+ * Optimized for v8 Firebase SDK + Tactical API Polling
+ */
+
 (function () {
     let detections = [];
     let isRealtime = false;
     const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-    // Initialize on page load
+    // ─────────────────────────────────────────────────────────────────────────
+    // GLOBAL EXPOSURE (Ensure these are available immediately for button clicks)
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    window.deleteIncident = async function(id) {
+        if (!confirm('Permanently delete this incident?')) return;
+        
+        try {
+            console.log(`📡 Sending Deletion Signal for: ${id}`);
+            showToast('Initiating deletion protocol...', 'info');
+            
+            // Priority 1: Backend API (Central Truth)
+            const response = await fetch(`${API_BASE_URL}/detections/${id}`, {
+                method: 'DELETE'
+            });
+
+            // Even if API returns 404, we proceed to clear it from the cloud
+            if (response.ok || response.status === 404) {
+                if (response.status === 404) console.warn('⚠️ Incident record missing from Backend. Finalizing Cloud Purge...');
+                
+                // Priority 2: Firebase (Real-time Broadcast)
+                if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+                    try {
+                        const db = firebase.firestore();
+                        await db.collection('detections').doc(id).delete();
+                    } catch (fsErr) {
+                        console.error('Firestore Delete Error (Check Rules):', fsErr);
+                    }
+                }
+                
+                showToast('Incident deletion complete.', 'success');
+                // Force a local update to UI
+                detections = detections.filter(d => d.id !== id);
+                renderTable();
+                updateStats();
+                
+                if (!isRealtime) fetchData();
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('API Protocol Rejection:', response.status, errorData);
+                throw new Error(errorData.detail || 'API protocol rejection');
+            }
+        } catch (error) {
+            console.error('Command Execution Error:', error);
+            showToast(`Protocol Error: ${error.message}`, 'error');
+        }
+    };
+
+    window.resolveIncident = async function(id) {
+        if (!confirm('Mark this incident as safely resolved?')) return;
+        
+        try {
+            console.log(`📡 Sending Resolve Signal for: ${id}`);
+            showToast('Initiating resolution protocol...', 'info');
+            
+            const response = await fetch(`${API_BASE_URL}/detections/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'resolved' })
+            });
+
+            if (response.ok) {
+                if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+                    try {
+                        const db = firebase.firestore();
+                        await db.collection('detections').doc(id).update({ status: 'resolved' });
+                    } catch (fsErr) {
+                        console.error('Firestore Update Error:', fsErr);
+                    }
+                }
+                
+                showToast('Incident marked as resolved.', 'success');
+                const target = detections.find(d => d.id === id);
+                if (target) target.status = 'resolved';
+                
+                renderTable();
+                updateStats();
+                if (!isRealtime) fetchData();
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('API Protocol Rejection:', response.status, errorData);
+                throw new Error(errorData.detail || 'API protocol rejection');
+            }
+        } catch (error) {
+            console.error('Command Execution Error:', error);
+            showToast(`Protocol Error: ${error.message}`, 'error');
+        }
+    };
+
+    window.purgeAllDetections = async function() {
+        if (!confirm('CRITICAL ACTION: Reset global map and purge all incident history?')) return;
+        showToast('Purge protocol requires Root Authentication.', 'error');
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INITIALIZATION logic
+    // ─────────────────────────────────────────────────────────────────────────
+
     document.addEventListener('DOMContentLoaded', async () => {
         startClock();
+        
+        // Initial data pull (Guaranteed start)
+        await fetchData();
+        
         try {
             const success = await initializeFirebase();
             if (success && typeof firebase !== 'undefined' && firebase.apps.length > 0) {
@@ -13,11 +119,11 @@
                 isRealtime = true;
                 setupAdminListeners();
             } else {
-                throw new Error('Firebase skipped');
+                console.warn('⚠️ Firebase skipped. Staying in Tactical Polling mode.');
+                startPolling();
             }
         } catch (e) {
-            console.warn('⚠️ Cloud Sync unavailable. Reverting to Tactical API Polling.');
-            showToast('Cloud sync unavailable. Using direct API polling.', 'info');
+            console.warn('⚠️ Cloud Sync Initialization Error. Falling back to Polling.');
             startPolling();
         }
     });
@@ -31,13 +137,14 @@
     }
 
     function startPolling() {
-        fetchData();
-        setInterval(fetchData, 5000); // Poll every 5 seconds
+        // Already did once on load, so just set interval
+        setInterval(fetchData, 5000); 
     }
 
     async function fetchData() {
         try {
             const response = await fetch(`${API_BASE_URL}/detections/?limit=100`);
+            if (!response.ok) throw new Error(`API error ${response.status}`);
             const data = await response.json();
             detections = data;
             renderTable();
@@ -48,21 +155,33 @@
     }
 
     function setupAdminListeners() {
+        if (typeof firebase === 'undefined') return;
         const db = firebase.firestore();
         
-        // Listen for ALL detections
         db.collection('detections')
             .orderBy('timestamp', 'desc')
             .onSnapshot((snapshot) => {
-                detections = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+                snapshot.docChanges().forEach((change) => {
+                    const docId = change.doc.id;
+                    if (change.type === 'added') {
+                        const newDoc = { id: docId, ...change.doc.data() };
+                        if (!detections.find(d => d.id === docId)) {
+                            detections.unshift(newDoc);
+                        }
+                    } else if (change.type === 'modified') {
+                        const idx = detections.findIndex(d => d.id === docId);
+                        if (idx !== -1) {
+                            detections[idx] = { id: docId, ...change.doc.data() };
+                        }
+                    } else if (change.type === 'removed') {
+                        detections = detections.filter(d => d.id !== docId);
+                    }
+                });
                 
                 renderTable();
                 updateStats();
             }, (error) => {
-                console.error('Snapshot error (permissions/indexes?):', error);
+                console.error('Snapshot error (Permissions/Indexes?):', error);
                 showToast('Cloud sync error. Falling back to Polling.', 'error');
                 isRealtime = false;
                 startPolling();
@@ -91,7 +210,7 @@
 
         tableBody.innerHTML = detections.map(d => {
             const date = d.timestamp ? new Date(d.timestamp).toLocaleString() : 'N/A';
-            const confidence = Math.round((d.confidence || 0) * 100);
+            const confidence = Math.round((parseFloat(d.confidence) || 0) * 100);
 
             return `
                 <tr class="data-table-row border-b border-white/5 hover:bg-white/5 transition-colors">
@@ -111,62 +230,22 @@
                     </td>
                     <td class="px-10 py-6 text-[10px] font-bold text-slate-400 font-mono">${date}</td>
                     <td class="px-10 py-6">
-                         <span class="px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] font-black uppercase text-slate-400 tracking-widest">${d.status}</span>
+                         <span class="px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] font-black uppercase text-slate-400 tracking-widest">${d.status || 'Pending'}</span>
                     </td>
                     <td class="px-10 py-6">
-                        <button onclick="resolveIncident('${d.id}')" class="bg-primary/10 hover:bg-primary text-primary hover:text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-primary/20 transition-all flex items-center gap-2">
-                             <span class="material-symbols-outlined text-xs">check_circle</span> Resolve
-                        </button>
+                        <div class="flex gap-2">
+                             <button onclick="resolveIncident('${d.id}')" class="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-500/20 transition-all flex items-center gap-1">
+                                 <span class="material-symbols-outlined text-[10px]">check</span> Resolve
+                             </button>
+                             <button onclick="deleteIncident('${d.id}')" class="bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-rose-500/20 transition-all flex items-center gap-1">
+                                 <span class="material-symbols-outlined text-[10px]">delete</span> Delete
+                             </button>
+                        </div>
                     </td>
                 </tr>
             `;
         }).join('');
     }
-
-    window.resolveIncident = async function(id) {
-        if (!confirm('Permanently resolve and archive this incident?')) return;
-        
-        try {
-            console.log(`📡 Sending Resolution Signal for: ${id}`);
-            // Priority 1: Backend API (Central Truth)
-            const response = await fetch(`${API_BASE_URL}/detections/${id}`, {
-                method: 'DELETE'
-            });
-
-            if (response.ok || response.status === 404) {
-                if (response.status === 404) console.warn('⚠️ Incident record missing from Backend. Finalizing Cloud Purge...');
-                
-                // Priority 2: Firebase (Real-time Broadcast)
-                if (isRealtime) {
-                    const db = firebase.firestore();
-                    await db.collection('detections').doc(id).delete();
-                }
-                
-                showToast('Resolution protocol complete.', 'success');
-                if (!isRealtime) fetchData();
-            } else {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('API Protocol Rejection:', response.status, errorData);
-                throw new Error(errorData.detail || 'API protocol rejection');
-            }
-        } catch (error) {
-            console.error('Command Execution Error:', error);
-            showToast(`Protocol Error: ${error.message}`, 'error');
-        }
-    };
-
-    window.purgeAllDetections = async function() {
-        if (!confirm('CRITICAL ACTION: Reset global map and purge all incident history?')) return;
-        
-        showToast('Initiating Global Purge...', 'critical');
-        try {
-            // This is a mock: In real scenario, backend would have a /purge endpoint
-            // For now, we resolve visible ones or require manual DB wipe
-            showToast('Global Purge requires Root Authentication.', 'error');
-        } catch (error) {
-            showToast('Purge protocol failed.', 'error');
-        }
-    };
 
     function showToast(message, type = 'info') {
         const container = document.getElementById('toastContainer');

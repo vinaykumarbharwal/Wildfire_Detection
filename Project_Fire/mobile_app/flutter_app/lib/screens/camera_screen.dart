@@ -100,7 +100,7 @@ class _CameraScreenState extends State<CameraScreen> {
       // 📍 FETCH LOCATION
       LocationData? loc;
       try {
-        loc = await _location.getLocation().timeout(Duration(seconds: 3));
+        loc = await _location.getLocation().timeout(Duration(seconds: 10));
       } catch (e) {
         print("Location timeout or error: $e");
       }
@@ -115,7 +115,11 @@ class _CameraScreenState extends State<CameraScreen> {
         lng: loc?.longitude ?? 0.0,
       );
 
-      if (result['fire_detected'] == true) {
+      if (result['status'] == 'error' || result.containsKey('error')) {
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: Could not connect to PC Backend. Check Wi-Fi / IP.')));
+        }
+      } else if (result['fire_detected'] == true) {
         _showFireDialog(result, xFile.path);
         if (silent) {
            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('🔥 Fire Detected! Pinned to Global Map.'), backgroundColor: kPrimary));
@@ -125,7 +129,7 @@ class _CameraScreenState extends State<CameraScreen> {
       }
     } catch (e) {
       if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: PC Backend Offline (10.60.1.7)')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: PC Backend Offline or Invalid IP')));
       }
     } finally {
       if (mounted) setState(() { _isProcessing = false; });

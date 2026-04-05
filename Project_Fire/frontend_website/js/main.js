@@ -790,25 +790,39 @@
 
         try {
             const db = firebase.firestore();
-            // Listen for new detections
+            let isInitialSync = true;
+            
+            // Listen for top 50 recent detections
             db.collection('detections')
-                .where('timestamp', '>', new Date().toISOString())
+                .orderBy('timestamp', 'desc')
+                .limit(50)
                 .onSnapshot((snapshot) => {
                     snapshot.docChanges().forEach((change) => {
+                        const docId = change.doc.id;
                         if (change.type === 'added') {
                             const detection = sanitizeDetection({
-                                id: change.doc.id,
+                                id: docId,
                                 ...change.doc.data()
                             });
-                            detections.unshift(detection);
-                            filterDetections();
-                            if (detection.severity === 'critical' || detection.severity === 'high') {
+                            // Prevent duplicates
+                            if (!detections.find(d => d.id === docId)) {
+                                detections.unshift(detection);
+                            }
+                            
+                            // Only alert on truly new incidents that arrive after initial sync
+                            if (!isInitialSync && (detection.severity === 'critical' || detection.severity === 'high')) {
                                 showToast(`New ${detection.severity} severity fire detected!`, detection.severity);
                                 playAlertSound();
                             }
+                        } else if (change.type === 'removed') {
+                            console.log(`🗑️ Incident Purged: ${docId}`);
+                            detections = detections.filter(d => d.id !== docId);
                         }
-                        // Handle modified/removed...
+                        
+                        filterDetections();
                     });
+                    
+                    isInitialSync = false;
                 }, (err) => {
                     console.error('Firestore listener error:', err);
                     startPolling();

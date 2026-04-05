@@ -327,9 +327,8 @@ async def get_detection(detection_id: str):
 async def update_detection(
     detection_id: str,
     update_data: DetectionUpdate,
-    current_user: dict = Depends(get_current_user),
 ):
-    """Update a detection's status, severity, or notes (authentication required)."""
+    """Update a detection's status, severity, or notes."""
     try:
         detection_ref = db.collection("detections").document(detection_id)
         detection_snap = detection_ref.get()
@@ -342,13 +341,12 @@ async def update_detection(
 
         update_dict = update_data.dict(exclude_unset=True)
         update_dict["updated_at"] = datetime.utcnow()
-        update_dict["updated_by"] = current_user.get("uid")
+        update_dict["updated_by"] = "Admin_Desk"
 
         detection_ref.update(update_dict)
         logger.info(
-            "Detection %s updated by %s: %s",
+            "Detection %s updated by Admin_Desk: %s",
             detection_id,
-            current_user.get("uid"),
             update_dict,
         )
 
