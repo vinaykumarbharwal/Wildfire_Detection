@@ -247,7 +247,8 @@
                         Dual-Active Detection</span>
                 </div>
             </div>
-            <div class="grid md:grid-cols-2 gap-12">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+                <!-- Satellite Feed -->
                 <div class="feed-container group">
                     <div class="relative overflow-hidden aspect-video">
                         <img alt="Satellite Feed"
@@ -279,6 +280,56 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Live Camera Feed (NEW) -->
+                <div class="feed-container group">
+                    <div class="relative overflow-hidden aspect-video bg-slate-900">
+                        <video id="cameraFeed" class="w-full h-full object-cover" autoplay playsinline muted></video>
+                        <canvas id="frameCanvas" class="hidden"></canvas>
+                        
+                        <!-- Overlay when camera is off -->
+                        <div id="cameraOffOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 gap-4 transition-opacity duration-500 z-20">
+                            <div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center border border-white/10">
+                                <span class="material-symbols-outlined text-slate-500 text-3xl">videocam_off</span>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-[10px] font-black text-white uppercase tracking-widest">Surveillance Offline</p>
+                                <p class="text-[8px] text-slate-500 font-bold uppercase mt-1">Activate local node camera</p>
+                            </div>
+                        </div>
+
+                        <!-- AI Recognition Bounds Overlay -->
+                        <div id="aiBoundingBox" class="absolute hidden border-2 border-primary shadow-[0_0_15px_rgba(255,75,75,0.5)] z-10">
+                            <div class="absolute -top-6 left-0 bg-primary text-white text-[8px] font-black px-2 py-0.5 rounded-t-md whitespace-nowrap">
+                                <span id="aiLabel">FIRE</span> <span id="aiConfidence">0%</span>
+                            </div>
+                        </div>
+
+                        <div class="absolute inset-0 p-8 flex flex-col justify-between z-30 pointer-events-none">
+                            <div class="flex justify-between items-start pointer-events-auto">
+                                <div class="bg-emerald-500 text-white px-4 py-2 rounded-lg font-black text-[10px] tracking-widest uppercase shadow-lg flex items-center gap-2">
+                                    <span class="w-1.5 h-1.5 bg-white rounded-full animate-pulse" id="cameraStatusDot"></span>
+                                    LIVE-NODE-SURVEILLANCE
+                                </div>
+                                <button id="cameraToggleBtn" class="bg-white/10 backdrop-blur-md hover:bg-primary text-white p-2.5 rounded-xl transition-all border border-white/10 shadow-xl group/btn">
+                                    <span class="material-symbols-outlined text-xl" id="cameraToggleIcon">videocam</span>
+                                </button>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <div class="flex justify-between text-[10px] font-black text-white uppercase tracking-widest drop-shadow-md">
+                                    <span>AI Neural Engine</span>
+                                    <span id="aiStatus" class="text-white flex items-center gap-1 opacity-60">Offline</span>
+                                </div>
+                                <div class="h-1.5 w-full bg-white/20 rounded-full overflow-hidden backdrop-blur-sm">
+                                    <div id="aiAnalysisBar" class="h-full bg-primary transition-all duration-300 shadow-[0_0_10px_rgba(255,75,75,0.8)]" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Drone Feed -->
                 <div class="feed-container group">
                     <div class="relative overflow-hidden aspect-video">
                         <img alt="Drone Feed"
@@ -286,7 +337,7 @@
                             src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkTKfrzFScuKi2mqur1E-FteSeEaGpkVePNgYQ_C8UfMdO6awF9iYFP7Ub-aZvK0gStqdrXwUmrr7j1peSTPzzEC0Zm9aapPetgECaXt6fuhE2lk2cvshG1wgKKkLMKML_Czad5x9NiHis7_6tuquBzJSc1MutT2-XSi4GvOcYwgfo-HLudU6ywArFIq_NTntmwbBAnp2xxViQkGybz0drNI2TeIBiVrF7ZORcgB1Nb53siD9AGhiFiqhH8Dr6dzMz0UtOgqGaK5I" />
                         <div class="absolute inset-0 bg-black/5"></div>
                         <div
-                            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 border border-primary/30 rounded-full pointer-events-none">
+                            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-primary/30 rounded-full pointer-events-none">
                             <div class="absolute inset-0 flex items-center justify-center">
                                 <div class="w-full h-px bg-primary/20"></div>
                                 <div class="h-full w-px bg-primary/20"></div>

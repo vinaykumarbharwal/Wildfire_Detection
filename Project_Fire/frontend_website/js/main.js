@@ -168,6 +168,176 @@
                 }
             });
         });
+
+        // Camera Surveillance Toggle
+        const cameraBtn = document.getElementById('cameraToggleBtn');
+        if (cameraBtn) {
+            cameraBtn.addEventListener('click', toggleCameraSurveillance);
+        }
+    }
+
+    // --- Camera & AI Inference Logic ---
+    let isCameraActive = false;
+    let frameAnalysisInterval = null;
+    const ANALYSIS_RATE_MS = 2000; // Analyze every 2 seconds to save bandwidth/CPU
+
+    async function toggleCameraSurveillance() {
+        const video = document.getElementById('cameraFeed');
+        const overlay = document.getElementById('cameraOffOverlay');
+        const icon = document.getElementById('cameraToggleIcon');
+        const dot = document.getElementById('cameraStatusDot');
+        const statusText = document.getElementById('aiStatus');
+
+        if (!isCameraActive) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+                isCameraActive = true;
+                
+                // UI Updates
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 500);
+                icon.textContent = 'videocam_off';
+                dot.classList.add('bg-primary');
+                dot.classList.remove('bg-white');
+                statusText.textContent = 'Initializing AI...';
+                statusText.classList.remove('opacity-60');
+
+                // Start analysis loop
+                startAnalysisLoop();
+                showToast('Local surveillance node activated.', 'success');
+            } catch (err) {
+                console.error('Camera access error:', err);
+                showToast('Camera access denied or unavailable.', 'error');
+            }
+        } else {
+            stopCameraSurveillance();
+        }
+    }
+
+    function stopCameraSurveillance() {
+        const video = document.getElementById('cameraFeed');
+        const overlay = document.getElementById('cameraOffOverlay');
+        const icon = document.getElementById('cameraToggleIcon');
+        const dot = document.getElementById('cameraStatusDot');
+        const statusText = document.getElementById('aiStatus');
+        const bboxes = document.getElementById('aiBoundingBox');
+
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+            video.srcObject = null;
+        }
+
+        isCameraActive = false;
+        clearInterval(frameAnalysisInterval);
+        
+        // UI Updates
+        overlay.classList.remove('hidden');
+        setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+        icon.textContent = 'videocam';
+        dot.classList.remove('bg-primary');
+        dot.classList.add('bg-white');
+        statusText.textContent = 'Offline';
+        statusText.classList.add('opacity-60');
+        bboxes.classList.add('hidden');
+        
+        document.getElementById('aiAnalysisBar').style.width = '0%';
+        showToast('Local surveillance node deactivated.', 'info');
+    }
+
+    function startAnalysisLoop() {
+        if (frameAnalysisInterval) clearInterval(frameAnalysisInterval);
+        frameAnalysisInterval = setInterval(analyzeFrame, ANALYSIS_RATE_MS);
+    }
+
+    async function analyzeFrame() {
+        if (!isCameraActive) return;
+
+        const video = document.getElementById('cameraFeed');
+        const canvas = document.getElementById('frameCanvas');
+        const bar = document.getElementById('aiAnalysisBar');
+        const statusText = document.getElementById('aiStatus');
+
+        if (!video || video.videoWidth === 0) return;
+
+        // Prepare canvas
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Update progress bar to show activity
+        bar.style.width = '100%';
+        statusText.textContent = 'Analyzing...';
+
+        try {
+            // Convert to blob
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
+            
+            const formData = new FormData();
+            formData.append('image', blob, 'frame.jpg');
+
+            const startTime = Date.now();
+            const response = await fetch(`${API_BASE_URL}/inference/detect`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            const latency = Date.now() - startTime;
+
+            updateDetectionUI(result, latency);
+        } catch (err) {
+            console.error('Frame analysis failed:', err);
+            statusText.textContent = 'Engine Error';
+        } finally {
+            // Reset bar after a delay
+            setTimeout(() => {
+                if (isCameraActive) bar.style.width = '0%';
+            }, 500);
+        }
+    }
+
+    function updateDetectionUI(result, latency) {
+        const statusText = document.getElementById('aiStatus');
+        const bbox = document.getElementById('aiBoundingBox');
+        const label = document.getElementById('aiLabel');
+        const confidence = document.getElementById('aiConfidence');
+
+        if (result.detected) {
+            statusText.textContent = `🔥 FIRE DETECTED (${latency}ms)`;
+            statusText.classList.add('text-primary');
+            statusText.classList.remove('text-white');
+
+            // Show bounding box
+            bbox.classList.remove('hidden');
+            label.textContent = result.label ? result.label.toUpperCase() : 'FIRE';
+            confidence.textContent = `${Math.round(result.confidence * 100)}%`;
+
+            // Mock box position for visual effect if real ones aren't mapped to CSS yet
+            // In a real app, we'd map normalized coords from the model to the video container
+            if (result.boxes && result.boxes.length > 0) {
+                // Just a mock placement for premium feel since mapping coords can be complex
+                bbox.style.top = '30%';
+                bbox.style.left = '30%';
+                bbox.style.width = '40%';
+                bbox.style.height = '40%';
+            }
+
+            // Trigger alert if high confidence
+            if (result.confidence > 0.7) {
+                showToast(`CRITICAL: AI node detected active fire signature!`, 'critical');
+                playAlertSound();
+            }
+        } else {
+            statusText.textContent = `Scanning... (${latency}ms)`;
+            statusText.classList.remove('text-primary');
+            statusText.classList.add('text-white');
+            bbox.classList.add('hidden');
+        }
     }
 
     async function loadStats() {

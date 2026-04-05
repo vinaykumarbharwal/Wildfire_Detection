@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -40,6 +41,18 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
     
     _scannerAnimationController = AnimationController(
         vsync: this, duration: Duration(seconds: 2))..repeat(reverse: true);
+        
+    // Start real-time surveillance loop
+    _startSurveillanceLoop();
+  }
+
+  void _startSurveillanceLoop() {
+    // Attempt an automated scan every 2 seconds in the background
+    Timer.periodic(Duration(seconds: 2), (timer) {
+      if (mounted && _controller != null && _controller!.value.isInitialized && !_isDetecting) {
+        _scanNow(silent: true);
+      }
+    });
   }
 
   Future<void> _initializeCamera() async {
@@ -102,7 +115,7 @@ class _CameraScreenState extends State<CameraScreen> with WidgetsBindingObserver
         
         _showFireAlert(result, image.path);
       } else {
-        if (!mounted) return;
+        if (!mounted || silent) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('No fire detected in this frame.', style: TextStyle(fontWeight: FontWeight.bold)),

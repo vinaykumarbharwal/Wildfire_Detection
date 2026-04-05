@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   static const String appName = 'Wildfire Detection';
-  static const String baseUrl = 'http://10.43.68.51:8000/api';
+  static const String baseUrl = 'http://10.233.67.51:8000/api';
   
   // Model parameters
   static const int modelInputSize = 320;
