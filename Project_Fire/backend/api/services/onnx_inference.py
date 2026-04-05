@@ -12,7 +12,7 @@ class OnnxInferenceService:
         if model_path is None:
             # Look for model in assets directory
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            model_path = os.path.join(base_dir, "assets", "models", "fire_model.onnx")
+            model_path = os.path.join(base_dir, "models", "fire_model.onnx")
         
         self.model_path = model_path
         self.session = None
@@ -56,7 +56,7 @@ class OnnxInferenceService:
         if not self.session:
             # Fallback mock for demonstration if no model is present
             return {
-                "detected": True,
+                "fire_detected": True,
                 "confidence": 0.85,
                 "label": "mock_fire_test",
                 "boxes": [[100, 100, 200, 200]],
@@ -79,15 +79,15 @@ class OnnxInferenceService:
             detected = confidence > 0.4 # Threshold
             
             return {
-                "detected": detected,
-                "confidence": round(confidence, 4),
+                "fire_detected": detected,
+                "confidence": round(float(confidence), 4),
                 "label": "fire" if detected else "none",
                 "boxes": [best_pred[0:4].tolist()],
                 "raw_output_shape": list(outputs[0].shape)
             }
         except Exception as e:
             logger.error(f"Inference error: {e}")
-            return {"detected": False, "error": str(e)}
+            return {"fire_detected": False, "error": str(e)}
 
 # Singleton instance
 onnx_service = OnnxInferenceService()

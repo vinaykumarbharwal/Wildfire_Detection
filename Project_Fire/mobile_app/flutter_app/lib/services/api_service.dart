@@ -150,10 +150,14 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Map<String, dynamic>> detectFireCloud(File imageFile) async {
+  Future<Map<String, dynamic>> detectFireCloud(File imageFile, {double lat = 0.0, double lng = 0.0}) async {
     try {
       var uri = Uri.parse('$baseUrl/inference/detect');
       var request = http.MultipartRequest('POST', uri);
+      
+      // Add Coordinates
+      request.fields['lat'] = lat.toString();
+      request.fields['lng'] = lng.toString();
       
       request.files.add(
         await http.MultipartFile.fromPath(

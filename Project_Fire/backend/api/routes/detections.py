@@ -381,7 +381,6 @@ async def update_detection(
 @router.delete("/{detection_id}", status_code=status.HTTP_200_OK)
 async def delete_detection(
     detection_id: str,
-    current_user: dict = Depends(get_current_user),
 ):
     """Permanently delete a detection record (authentication required)."""
     try:
@@ -395,7 +394,7 @@ async def delete_detection(
 
         detection_ref.delete()
         logger.info(
-            "Detection %s deleted by %s.", detection_id, current_user.get("uid")
+            "Detection %s deleted via Admin Hub.", detection_id
         )
         return {"message": "Detection deleted successfully.", "id": detection_id}
 

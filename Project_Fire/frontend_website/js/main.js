@@ -30,6 +30,9 @@
             // Load data in parallel to avoid one failure blocking everything
             loadStats().catch(e => console.warn('Stats load skipped:', e));
             loadDetections().catch(e => console.warn('Detections load skipped:', e));
+            
+            // Setup real-time cloud connection (with polling fallback)
+            setupRealtimeListeners();
 
 
             // Setup event listeners
@@ -688,14 +691,16 @@
                         </div>
                     </div>
                     
-                    <div class="flex gap-4 mt-8 pt-4 border-t border-slate-50">
-                         <a href="https://maps.google.com/?q=${detection.latitude},${detection.longitude}" target="_blank" class="flex-1 bg-slate-900 text-white py-3 rounded-xl text-center text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all">
-                            View Map
-                        </a>
-                        <a href="${detection.image_url}" target="_blank" class="flex-1 bg-white border border-slate-200 text-slate-900 py-3 rounded-xl text-center text-[10px] font-black uppercase tracking-widest hover:border-primary transition-all">
-                            See Photo
-                        </a>
-                    </div>
+                        <div class="flex flex-col gap-3 mt-8 pt-6 border-t border-slate-50">
+                            <div class="flex gap-4">
+                                 <a href="https://maps.google.com/?q=${detection.latitude},${detection.longitude}" target="_blank" class="flex-1 bg-slate-900 text-white py-3 rounded-xl text-center text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all">
+                                    View Map
+                                </a>
+                                <a href="${detection.image_url}" target="_blank" class="flex-1 bg-white border border-slate-200 text-slate-900 py-3 rounded-xl text-center text-[10px] font-black uppercase tracking-widest hover:border-primary transition-all">
+                                    See Photo
+                                </a>
+                            </div>
+                        </div>
                 </div>
             </div>
         </div>
@@ -777,53 +782,50 @@
     }
 
     function setupRealtimeListeners() {
-        if (!firebase.firestore) return;
+        if (typeof firebase === 'undefined' || !firebase.initializeApp) {
+            console.warn('⚠️ Firebase not loaded. Starting Polling fallback.');
+            startPolling();
+            return;
+        }
 
-        const db = firebase.firestore();
-
-        // Listen for new detections
-        db.collection('detections')
-            .where('timestamp', '>', new Date())
-            .onSnapshot((snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added') {
-                        const detection = sanitizeDetection({
-                            id: change.doc.id,
-                            ...change.doc.data()
-                        });
-
-                        // Add to list
-                        detections.unshift(detection);
-
-                        // Update UI
-                        filterDetections();
-
-                        // Show notification for critical/high severity
-                        if (detection.severity === 'critical' || detection.severity === 'high') {
-                            showToast(
-                                `New ${detection.severity} severity fire detected at ${detection.address || 'unknown location'}`,
-                                detection.severity
-                            );
-
-                            // Play sound
-                            playAlertSound();
-                        }
-                    }
-
-                    if (change.type === 'modified') {
-                        // Update detection in list
-                        const index = detections.findIndex(d => d.id === change.doc.id);
-                        if (index !== -1) {
-                            detections[index] = sanitizeDetection({
+        try {
+            const db = firebase.firestore();
+            // Listen for new detections
+            db.collection('detections')
+                .where('timestamp', '>', new Date().toISOString())
+                .onSnapshot((snapshot) => {
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            const detection = sanitizeDetection({
                                 id: change.doc.id,
                                 ...change.doc.data()
                             });
+                            detections.unshift(detection);
                             filterDetections();
+                            if (detection.severity === 'critical' || detection.severity === 'high') {
+                                showToast(`New ${detection.severity} severity fire detected!`, detection.severity);
+                                playAlertSound();
+                            }
                         }
-                    }
+                        // Handle modified/removed...
+                    });
+                }, (err) => {
+                    console.error('Firestore listener error:', err);
+                    startPolling();
                 });
-            });
+        } catch (e) {
+            console.error('Firebase setup error:', e);
+            startPolling();
+        }
     }
+
+    function startPolling() {
+        if (window.pollingActive) return;
+        window.pollingActive = true;
+        console.log('🔄 Tactical Polling Node Initialized');
+        setInterval(loadDetections, 10000); // UI updates every 10s
+    }
+
 
     function playAlertSound() {
         const audio = new Audio('assets/sounds/alert.mp3');

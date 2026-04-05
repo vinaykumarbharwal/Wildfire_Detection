@@ -15,7 +15,7 @@ class DetectionService extends ChangeNotifier {
     return true;
   }
 
-  Future<Map<String, dynamic>> detectFire(XFile imageFile, ApiService apiService) async {
+  Future<Map<String, dynamic>> detectFire(XFile imageFile, ApiService apiService, {double lat = 0.0, double lng = 0.0}) async {
     if (_isProcessing) return {'detected': false, 'error': 'Busy'};
     
     _isProcessing = true;
@@ -23,7 +23,7 @@ class DetectionService extends ChangeNotifier {
 
     try {
       final File file = File(imageFile.path);
-      final result = await apiService.detectFireCloud(file);
+      final result = await apiService.detectFireCloud(file, lat: lat, lng: lng);
       
       _isProcessing = false;
       notifyListeners();
