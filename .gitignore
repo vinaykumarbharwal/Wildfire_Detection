@@ -1,53 +1,43 @@
 # =========================
-# Python / FastAPI Backend
-# =========================
-# Virtual environments
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-.venv/
-env_fire/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Pytest & Coverage
-.pytest_cache/
-.coverage
-htmlcov/
-*.log
-
-# Type checkers
-.mypy_cache/
-.pyre/
-
-# Packaging & Distribution
-build/
-dist/
-*.egg-info/
-
-# =========================
-# Secrets & Credentials
+# Environment & Virtual ENVs
 # =========================
 .env
 .env.local
 .env.development
 .env.test
 .env.production
-firebase-credentials.json
-*.pem
+.env.example.bak
+env/
+venv/
+ENV/
+.venv/
+env_fire/
 
-# (Note: Keep .env.example tracked by NOT adding it here)
+# =========================
+# Python / FastAPI Backend
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.pyre/
+build/
+dist/
+*.egg-info/
+*.bak
+*.tmp
+*.log
 
 # =========================
 # Node / Frontend 
 # =========================
 node_modules/
 .npm/
+dist-ssr/
+*.local
 
 # =========================
 # Flutter / Mobile App
@@ -57,18 +47,21 @@ node_modules/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+build/
 
 # =========================
 # IDEs & Editors
 # =========================
 .vscode/
 .idea/
+.history/
 *.swp
 *.iml
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
+*.user
 
 # =========================
 # OS / System Files
@@ -82,3 +75,13 @@ ehthumbs.db
 ehthumbs_vista.db
 [Tt]humbs.db
 Desktop.ini
+
+# =========================
+# Jupyter Notebooks
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Firebase Credentials
+# =========================
+firebase-credentials.json
