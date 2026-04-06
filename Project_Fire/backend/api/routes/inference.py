@@ -4,6 +4,7 @@ from api.services.onnx_inference import onnx_service
 from api.services.firebase_service import db
 from api.routes.detections import _upload_image
 from api.services.notification_service import NotificationService
+from api.services.geocoding_service import get_location_details
 from datetime import datetime
 import logging
 import uuid
@@ -14,6 +15,7 @@ notification_service = NotificationService()
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
 def _calculate_severity(confidence: float) -> str:
     if confidence > 0.9:
         return "critical"
@@ -23,6 +25,7 @@ def _calculate_severity(confidence: float) -> str:
         return "medium"
     return "low"
 
+
 @router.post("/detect")
 async def detect_fire(
     image: UploadFile = File(...),
@@ -31,55 +34,78 @@ async def detect_fire(
 ):
     """
     Run ONNX inference and save detection to Firestore if fire is confirmed.
+    Geocodes real GPS coordinates from mobile app into a readable address.
     """
     try:
         image_bytes = await image.read()
 
-        # Run inference using the service
+        # Run inference
         results = await onnx_service.run_inference(image_bytes)
-
-        # Sync the key: the service returns 'fire_detected'
         detected: bool = results.get("fire_detected", False)
-        
+
         if detected:
-            print(f"\n🚨 [FIRE DETECTED] !!! - Confidence: {results.get('confidence'):.2%}\n")
-            
-            # --- GLOBAL DASHBOARD SYNC ---
+            confidence_val = results.get("confidence", 0.0)
+            print(f"\n🚨 [FIRE DETECTED] Confidence: {confidence_val:.2%} | GPS: {lat}, {lng}\n")
+
             detection_id = str(uuid.uuid4())
-            
-            # 📸 Upload the actual evidence photo
-            image.file.seek(0) # Reset file pointer for re-reading
+
+            # Upload evidence photo
+            image.file.seek(0)
             image_url = await _upload_image(image, detection_id)
-            
+
+            # 📍 Reverse-geocode real GPS coordinates
+            address = "Mobile Surveillance Node"
+            city = None
+            state = None
+            country = None
+
+            if lat != 0.0 or lng != 0.0:
+                try:
+                    loc_details = await get_location_details(lat, lng)
+                    address = loc_details.get("address") or address
+                    city    = loc_details.get("city")
+                    state   = loc_details.get("state")
+                    country = loc_details.get("country")
+                    logger.info(f"📍 Geocoded: {address}, {city}, {state}, {country}")
+                except Exception as geo_err:
+                    logger.warning(f"Geocoding skipped (will use fallback): {geo_err}")
+
             detection_data = {
                 "id": detection_id,
                 "latitude": lat,
                 "longitude": lng,
-                "confidence": results.get("confidence", 0.0),
-                "severity": _calculate_severity(results.get("confidence", 0.0)),
-                "timestamp": datetime.utcnow().isoformat() + "Z", # ISO format for JS
+                "confidence": confidence_val,
+                "severity": _calculate_severity(confidence_val),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
                 "status": "pending",
-                "address": "Mobile Surveillance Node",
+                "address": address,
+                "city": city,
+                "state": state,
+                "country": country,
                 "image_url": image_url or "https://raw.githubusercontent.com/vinaykumarbharwal/Fire_GITHUB/main/Project_Fire/mobile_app/flutter_app/assets/images/placeholder_fire.jpg"
             }
-            db.collection("detections").document(detection_id).set(detection_data)
-            print(f"📡 Broadcast to Global Dashboard Complete (ID: {detection_id})")
 
-            # 🔥 TACTICAL DISPATCH PROTOCOL 🔥 
-            # When confidence > 70%, trigger automated emergency response
-            if results.get('confidence', 0.0) > 0.7:
-                print("⚡ [TACTICAL DISPATCH] Initiating emergency phone and email alerts...")
-                # 1. SMS to emergency responders
-                await notification_service.send_verified_alert(detection_data)
-                
-                # 2. Evidence Email to mission control
-                await notification_service.send_email(
-                    to=os.getenv('EMAIL_USER'), # Sending to yourself for verification
-                    detection=detection_data
-                )
+            db.collection("detections").document(detection_id).set(detection_data)
+            logger.info(f"📡 Firestore sync complete | ID: {detection_id} | Address: {address}")
+
+            # 🔥 Tactical Dispatch — alert if confidence > 70%
+            if confidence_val > 0.7:
+                logger.info("⚡ [TACTICAL DISPATCH] Sending emergency alerts...")
+                try:
+                    await notification_service.send_verified_alert(detection_data)
+                except Exception as notif_err:
+                    logger.error(f"Alert dispatch failed: {notif_err}")
+
+                try:
+                    await notification_service.send_email(
+                        to=os.getenv('EMAIL_USER'),
+                        detection=detection_data
+                    )
+                except Exception as email_err:
+                    logger.error(f"Email dispatch failed: {email_err}")
         else:
-            print("✅ Area Clear.")
-            
+            print("✅ Area Clear — No fire detected.")
+
         confidence: float = float(results.get("confidence", 0.0))
         severity: str = results.get("severity") or _calculate_severity(confidence)
 
@@ -89,9 +115,14 @@ async def detect_fire(
             "confidence": confidence,
             "severity": severity,
             "timestamp": results.get("timestamp", ""),
-            "filename": image.filename
+            "filename": image.filename,
+            "location": {
+                "latitude": lat,
+                "longitude": lng,
+                "address": address if detected else None
+            }
         }
-    except Exception as e:
-        logger.error(f"Inference API error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
+    except Exception as e:
+        logger.error(f"Inference API error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

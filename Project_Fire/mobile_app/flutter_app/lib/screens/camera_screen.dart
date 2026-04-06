@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -97,39 +99,67 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _runAnalysis(XFile xFile, {bool silent = false}) async {
     setState(() { _isProcessing = true; });
     try {
-      // 📍 FETCH LOCATION
+      // 📍 FETCH LOCATION — with Windows/Web fallback
       LocationData? loc;
-      try {
-        loc = await _location.getLocation().timeout(Duration(seconds: 10));
-      } catch (e) {
-        print("Location timeout or error: $e");
+      if (!kIsWeb) {
+        try {
+          loc = await _location.getLocation().timeout(Duration(seconds: 10));
+          print("📍 GPS: ${loc.latitude}, ${loc.longitude}");
+        } catch (e) {
+          print("Location timeout or error: $e");
+        }
       }
 
       final apiService = Provider.of<ApiService>(context, listen: false);
       final detectionService = Provider.of<DetectionService>(context, listen: false);
-      
+
+      final double lat = loc?.latitude ?? 0.0;
+      final double lng = loc?.longitude ?? 0.0;
+
+      if (lat == 0.0 && lng == 0.0 && !silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ GPS unavailable — sending without location.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
       final result = await detectionService.detectFire(
-        xFile, 
+        xFile,
         apiService,
-        lat: loc?.latitude ?? 0.0,
-        lng: loc?.longitude ?? 0.0,
+        lat: lat,
+        lng: lng,
       );
 
       if (result['status'] == 'error' || result.containsKey('error')) {
         if (!silent) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: Could not connect to PC Backend. Check Wi-Fi / IP.')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('❌ Error: Could not connect to Backend. Check Wi-Fi / IP.'),
+            backgroundColor: Colors.red,
+          ));
         }
       } else if (result['fire_detected'] == true) {
         _showFireDialog(result, xFile.path);
         if (silent) {
-           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('🔥 Fire Detected! Pinned to Global Map.'), backgroundColor: kPrimary));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('🔥 Fire Detected! Pinned to Global Map.'),
+            backgroundColor: kPrimary,
+          ));
         }
       } else if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Clean Frame: No fire detected.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('✅ Clean Frame: No fire detected.'),
+          backgroundColor: Colors.green,
+        ));
       }
     } catch (e) {
       if (!silent) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: PC Backend Offline or Invalid IP')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('❌ Error: Backend Offline or Invalid IP'),
+          backgroundColor: Colors.red,
+        ));
       }
     } finally {
       if (mounted) setState(() { _isProcessing = false; });
@@ -145,9 +175,14 @@ class _CameraScreenState extends State<CameraScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.file(File(imagePath), height: 180),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: kIsWeb
+                ? Icon(Icons.local_fire_department, size: 100, color: kPrimary)
+                : Image.file(File(imagePath), height: 180),
+            ),
             SizedBox(height: 10),
-            Text('Confidence: ${(result['confidence'] * 100).toStringAsFixed(1)}%'),
+            Text('Confidence: ${(((result['confidence'] ?? 0) as num) * 100).toStringAsFixed(1)}%'),
             Text('Pinned to Global Dashboard Map.', style: TextStyle(fontSize: 10, color: Colors.grey)),
           ],
         ),

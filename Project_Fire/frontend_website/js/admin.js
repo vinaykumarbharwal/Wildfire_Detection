@@ -1,281 +1,287 @@
 /**
- * Agniveer — Admin Tactical Command Hub Logic
- * Optimized for v8 Firebase SDK + Tactical API Polling
+ * Agniveer — Admin Tactical Command Hub
+ * Fully compatible with self-contained admin.html (no Tailwind)
  */
 
 (function () {
     let detections = [];
+    let filteredDetections = [];
     let isRealtime = false;
     const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GLOBAL EXPOSURE (Ensure these are available immediately for button clicks)
-    // ─────────────────────────────────────────────────────────────────────────
-    
-    window.deleteIncident = async function(id) {
-        if (!confirm('Permanently delete this incident?')) return;
-        
-        try {
-            console.log(`📡 Sending Deletion Signal for: ${id}`);
-            showToast('Initiating deletion protocol...', 'info');
-            
-            // Priority 1: Backend API (Central Truth)
-            const response = await fetch(`${API_BASE_URL}/detections/${id}`, {
-                method: 'DELETE'
-            });
+    // ─── Global Actions (called from HTML buttons) ────────────────────────────
 
-            // Even if API returns 404, we proceed to clear it from the cloud
-            if (response.ok || response.status === 404) {
-                if (response.status === 404) console.warn('⚠️ Incident record missing from Backend. Finalizing Cloud Purge...');
-                
-                // Priority 2: Firebase (Real-time Broadcast)
+    window.deleteIncident = async function (id) {
+        if (!confirm('Permanently delete this incident?')) return;
+        showToast('Initiating deletion…', 'info');
+        try {
+            const res = await fetch(`${API_BASE_URL}/detections/${id}`, { method: 'DELETE' });
+            if (res.ok || res.status === 404) {
+                // Also remove from Firestore
                 if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
-                    try {
-                        const db = firebase.firestore();
-                        await db.collection('detections').doc(id).delete();
-                    } catch (fsErr) {
-                        console.error('Firestore Delete Error (Check Rules):', fsErr);
-                    }
+                    try { await firebase.firestore().collection('detections').doc(id).delete(); }
+                    catch (e) { console.warn('Firestore delete:', e); }
                 }
-                
-                showToast('Incident deletion complete.', 'success');
-                // Force a local update to UI
                 detections = detections.filter(d => d.id !== id);
-                renderTable();
+                applyFilter();
                 updateStats();
-                
+                showToast('Incident deleted successfully.', 'success');
                 if (!isRealtime) fetchData();
             } else {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('API Protocol Rejection:', response.status, errorData);
-                throw new Error(errorData.detail || 'API protocol rejection');
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${res.status}`);
             }
-        } catch (error) {
-            console.error('Command Execution Error:', error);
-            showToast(`Protocol Error: ${error.message}`, 'error');
+        } catch (e) {
+            console.error(e);
+            showToast(`Delete failed: ${e.message}`, 'error');
         }
     };
 
-    window.resolveIncident = async function(id) {
-        if (!confirm('Mark this incident as safely resolved?')) return;
-        
+    window.resolveIncident = async function (id) {
+        if (!confirm('Mark this incident as resolved?')) return;
+        showToast('Sending resolve signal…', 'info');
         try {
-            console.log(`📡 Sending Resolve Signal for: ${id}`);
-            showToast('Initiating resolution protocol...', 'info');
-            
-            const response = await fetch(`${API_BASE_URL}/detections/${id}`, {
+            const res = await fetch(`${API_BASE_URL}/detections/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: 'resolved' })
             });
-
-            if (response.ok) {
+            if (res.ok) {
                 if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
-                    try {
-                        const db = firebase.firestore();
-                        await db.collection('detections').doc(id).update({ status: 'resolved' });
-                    } catch (fsErr) {
-                        console.error('Firestore Update Error:', fsErr);
-                    }
+                    try { await firebase.firestore().collection('detections').doc(id).update({ status: 'resolved' }); }
+                    catch (e) { console.warn('Firestore update:', e); }
                 }
-                
-                showToast('Incident marked as resolved.', 'success');
                 const target = detections.find(d => d.id === id);
                 if (target) target.status = 'resolved';
-                
-                renderTable();
+                applyFilter();
                 updateStats();
+                showToast('Incident marked as resolved.', 'success');
                 if (!isRealtime) fetchData();
             } else {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('API Protocol Rejection:', response.status, errorData);
-                throw new Error(errorData.detail || 'API protocol rejection');
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `HTTP ${res.status}`);
             }
-        } catch (error) {
-            console.error('Command Execution Error:', error);
-            showToast(`Protocol Error: ${error.message}`, 'error');
+        } catch (e) {
+            showToast(`Resolve failed: ${e.message}`, 'error');
         }
     };
 
-    window.purgeAllDetections = async function() {
-        if (!confirm('CRITICAL ACTION: Reset global map and purge all incident history?')) return;
-        showToast('Purge protocol requires Root Authentication.', 'error');
+    window.purgeAllDetections = async function () {
+        if (!confirm('CRITICAL: Purge ALL incidents from system?')) return;
+        showToast('Master purge initiated…', 'info');
+        try {
+            for (const d of [...detections]) {
+                try { await fetch(`${API_BASE_URL}/detections/${d.id}`, { method: 'DELETE' }); } catch (_) {}
+                if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+                    try { await firebase.firestore().collection('detections').doc(d.id).delete(); } catch (_) {}
+                }
+            }
+            detections = [];
+            filteredDetections = [];
+            renderTable();
+            updateStats();
+            showToast('All incidents purged.', 'success');
+        } catch (e) {
+            showToast(`Purge failed: ${e.message}`, 'error');
+        }
     };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // INITIALIZATION logic
-    // ─────────────────────────────────────────────────────────────────────────
+    window.filterTable = function () {
+        applyFilter();
+    };
+
+    // ─── Init ────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', async () => {
         startClock();
-        
-        // Initial data pull (Guaranteed start)
         await fetchData();
-        
+
+        // ✅ ALWAYS poll every 3 seconds (guaranteed fresh data)
+        startPolling();
+
+        // ✅ ALSO try Firebase for instant real-time updates
         try {
-            const success = await initializeFirebase();
-            if (success && typeof firebase !== 'undefined' && firebase.apps.length > 0) {
-                console.log('📡 Real-time Cloud Intelligence Active');
+            const ok = await initializeFirebase();
+            if (ok && typeof firebase !== 'undefined' && firebase.apps.length > 0) {
                 isRealtime = true;
-                setupAdminListeners();
+                updateSyncLabel(true);
+                setupRealtimeListeners();
             } else {
-                console.warn('⚠️ Firebase skipped. Staying in Tactical Polling mode.');
-                startPolling();
+                updateSyncLabel(false);
             }
-        } catch (e) {
-            console.warn('⚠️ Cloud Sync Initialization Error. Falling back to Polling.');
-            startPolling();
+        } catch (_) {
+            updateSyncLabel(false);
         }
     });
 
-    function startClock() {
-        const timeEl = document.getElementById('currentTime');
-        if (!timeEl) return;
-        setInterval(() => {
-            timeEl.textContent = new Date().toLocaleTimeString([], { hour12: false });
-        }, 1000);
+    function updateSyncLabel(realtime) {
+        const el = document.getElementById('syncStatusLabel');
+        if (!el) return;
+        el.textContent = realtime ? 'Firebase Sync Active' : 'Polling Mode';
     }
 
-    function startPolling() {
-        // Already did once on load, so just set interval
-        setInterval(fetchData, 5000); 
+    function startClock() {
+        const el = document.getElementById('currentTime');
+        if (!el) return;
+        const tick = () => { el.textContent = new Date().toLocaleTimeString([], { hour12: false }); };
+        tick();
+        setInterval(tick, 1000);
     }
+
+    function startPolling() { setInterval(fetchData, 3000); }
 
     async function fetchData() {
         try {
-            const response = await fetch(`${API_BASE_URL}/detections/?limit=100`);
-            if (!response.ok) throw new Error(`API error ${response.status}`);
-            const data = await response.json();
-            detections = data;
-            renderTable();
+            const res = await fetch(`${API_BASE_URL}/detections/?limit=100`);
+            if (!res.ok) throw new Error(`API error ${res.status}`);
+            detections = await res.json();
+            applyFilter();
             updateStats();
-        } catch (error) {
-            console.error('Polling error:', error);
+        } catch (e) {
+            console.warn('Polling error:', e.message);
         }
     }
 
-    function setupAdminListeners() {
+    function setupRealtimeListeners() {
         if (typeof firebase === 'undefined') return;
-        const db = firebase.firestore();
-        
-        db.collection('detections')
+        firebase.firestore().collection('detections')
             .orderBy('timestamp', 'desc')
-            .onSnapshot((snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    const docId = change.doc.id;
+            .onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    const id = change.doc.id;
+                    const data = { id, ...change.doc.data() };
                     if (change.type === 'added') {
-                        const newDoc = { id: docId, ...change.doc.data() };
-                        if (!detections.find(d => d.id === docId)) {
-                            detections.unshift(newDoc);
-                        }
+                        if (!detections.find(d => d.id === id)) detections.unshift(data);
                     } else if (change.type === 'modified') {
-                        const idx = detections.findIndex(d => d.id === docId);
-                        if (idx !== -1) {
-                            detections[idx] = { id: docId, ...change.doc.data() };
-                        }
+                        const i = detections.findIndex(d => d.id === id);
+                        if (i !== -1) detections[i] = data;
                     } else if (change.type === 'removed') {
-                        detections = detections.filter(d => d.id !== docId);
+                        detections = detections.filter(d => d.id !== id);
                     }
                 });
-                
-                renderTable();
+                applyFilter();
                 updateStats();
-            }, (error) => {
-                console.error('Snapshot error (Permissions/Indexes?):', error);
-                showToast('Cloud sync error. Falling back to Polling.', 'error');
+            }, err => {
+                console.error('Snapshot error:', err);
                 isRealtime = false;
+                updateSyncLabel(false);
                 startPolling();
             });
     }
 
-    function updateStats() {
-        const activeCount = detections.filter(d => d.status === 'pending').length;
-        const totalCount = detections.length;
-        
-        const activeEl = document.getElementById('stats-active');
-        const totalEl = document.getElementById('stats-total');
-        
-        if (activeEl) activeEl.textContent = activeCount;
-        if (totalEl) totalEl.textContent = totalCount;
+    // ─── Filter ──────────────────────────────────────────────────────────────
+
+    function applyFilter() {
+        const q = (document.getElementById('searchInput')?.value || '').toLowerCase();
+        filteredDetections = q
+            ? detections.filter(d =>
+                (d.address || '').toLowerCase().includes(q) ||
+                (d.id || '').toLowerCase().includes(q) ||
+                (d.city || '').toLowerCase().includes(q) ||
+                (d.status || '').toLowerCase().includes(q))
+            : [...detections];
+        renderTable();
     }
 
-    function renderTable() {
-        const tableBody = document.getElementById('adminIncidentTable');
-        if (!tableBody) return;
+    // ─── Stats ───────────────────────────────────────────────────────────────
 
-        if (detections.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="5" class="px-10 py-20 text-center text-slate-500 font-bold uppercase tracking-widest">No Active Incidents Found in Grid</td></tr>`;
+    function updateStats() {
+        const active = detections.filter(d => d.status === 'pending' || d.status === 'verified').length;
+        const activeEl = document.getElementById('stats-active');
+        const totalEl  = document.getElementById('stats-total');
+        if (activeEl) activeEl.textContent = active;
+        if (totalEl)  totalEl.textContent  = detections.length;
+    }
+
+    // ─── Table Render ────────────────────────────────────────────────────────
+
+    function renderTable() {
+        const tbody = document.getElementById('adminIncidentTable');
+        if (!tbody) return;
+
+        if (filteredDetections.length === 0) {
+            tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No incidents found in system</td></tr>`;
             return;
         }
 
-        tableBody.innerHTML = detections.map(d => {
-            const date = d.timestamp ? new Date(d.timestamp).toLocaleString() : 'N/A';
+        tbody.innerHTML = filteredDetections.map(d => {
             const confidence = Math.round((parseFloat(d.confidence) || 0) * 100);
+            const date = d.timestamp ? new Date(d.timestamp).toLocaleString() : 'N/A';
+
+            // Address: prefer full address, else city/state, else coords, else fallback
+            let region = d.address || '';
+            if (!region || region === 'Mobile Surveillance Node') {
+                if (d.city || d.state) region = [d.city, d.state].filter(Boolean).join(', ');
+                else if (d.latitude && d.longitude) region = 'Mobile Surveillance Node';
+                else region = 'Unknown Location';
+            }
+
+            // GPS display
+            const gps = (d.latitude && d.longitude && (d.latitude !== 0 || d.longitude !== 0))
+                ? `<a href="https://maps.google.com/?q=${d.latitude},${d.longitude}" target="_blank"
+                       style="color:#3B82F6;font-size:10px;font-family:monospace;text-decoration:none;" title="Open in Google Maps">
+                       📍 ${parseFloat(d.latitude).toFixed(4)}, ${parseFloat(d.longitude).toFixed(4)}
+                   </a>`
+                : `<span style="color:#475569;font-size:10px;">No GPS</span>`;
+
+            const status = (d.status || 'pending').toLowerCase();
+            const statusBadge = `<span class="status-badge ${status}">${status}</span>`;
+
+            const barColor = confidence >= 80 ? '#F43F5E' : confidence >= 60 ? '#F59E0B' : '#10B981';
 
             return `
-                <tr class="data-table-row border-b border-white/5 hover:bg-white/5 transition-colors">
-                    <td class="px-10 py-6">
-                        <div class="flex flex-col">
-                            <span class="text-xs font-black text-white uppercase tracking-tighter">${d.address || 'Mobile Surveillance Node'}</span>
-                            <span class="text-[9px] font-mono font-bold text-slate-500 uppercase mt-1">${d.id}</span>
-                        </div>
-                    </td>
-                    <td class="px-10 py-6">
-                        <div class="flex items-center gap-3">
-                            <div class="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                                <div class="h-full bg-primary" style="width: ${confidence}%"></div>
-                            </div>
-                            <span class="text-xs font-mono font-black text-white">${confidence}%</span>
-                        </div>
-                    </td>
-                    <td class="px-10 py-6 text-[10px] font-bold text-slate-400 font-mono">${date}</td>
-                    <td class="px-10 py-6">
-                         <span class="px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-[9px] font-black uppercase text-slate-400 tracking-widest">${d.status || 'Pending'}</span>
-                    </td>
-                    <td class="px-10 py-6">
-                        <div class="flex gap-2">
-                             <button onclick="resolveIncident('${d.id}')" class="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-500/20 transition-all flex items-center gap-1">
-                                 <span class="material-symbols-outlined text-[10px]">check</span> Resolve
-                             </button>
-                             <button onclick="deleteIncident('${d.id}')" class="bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-rose-500/20 transition-all flex items-center gap-1">
-                                 <span class="material-symbols-outlined text-[10px]">delete</span> Delete
-                             </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
+            <tr>
+              <td>
+                <div class="region-name">${escHtml(region)}</div>
+                <div class="region-id">${escHtml(d.id)}</div>
+              </td>
+              <td>
+                <div class="confidence-bar">
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width:${confidence}%;background:${barColor}"></div>
+                  </div>
+                  <span class="conf-value" style="color:${barColor}">${confidence}%</span>
+                </div>
+              </td>
+              <td><span class="timestamp">${date}</span></td>
+              <td>${gps}</td>
+              <td>${statusBadge}</td>
+              <td>
+                <div class="actions">
+                  <button class="action-btn btn-resolve" onclick="resolveIncident('${d.id}')">
+                    <span class="material-symbols-outlined">check_circle</span> Resolve
+                  </button>
+                  <button class="action-btn btn-delete" onclick="deleteIncident('${d.id}')">
+                    <span class="material-symbols-outlined">delete</span> Delete
+                  </button>
+                </div>
+              </td>
+            </tr>`;
         }).join('');
     }
 
-    function showToast(message, type = 'info') {
+    // ─── Toast ───────────────────────────────────────────────────────────────
+
+    function showToast(msg, type = 'info') {
         const container = document.getElementById('toastContainer');
         if (!container) return;
-
+        const icons = { success: 'check_circle', error: 'cancel', info: 'info' };
         const toast = document.createElement('div');
-        toast.className = `p-4 rounded-xl bg-white/10 backdrop-blur-md border border-white/10 shadow-2xl flex items-center gap-4 animate-slide-in pointer-events-auto`;
-        
-        const colors = {
-            'success': 'text-emerald-400 bg-emerald-400/10',
-            'error': 'text-rose-400 bg-rose-400/10',
-            'critical': 'text-primary bg-primary/10',
-            'info': 'text-blue-400 bg-blue-400/10'
-        };
-        const colorClass = colors[type] || colors.info;
-
+        toast.className = `toast ${type}`;
         toast.innerHTML = `
-            <div class="w-8 h-8 rounded-full flex items-center justify-center ${colorClass}">
-                <span class="material-symbols-outlined text-sm">
-                    ${type === 'success' ? 'check' : type === 'error' ? 'close' : 'info'}
-                </span>
-            </div>
-            <span class="text-xs font-bold text-white">${message}</span>
-        `;
-
+            <div class="toast-icon"><span class="material-symbols-outlined">${icons[type] || 'info'}</span></div>
+            <span>${escHtml(msg)}</span>`;
         container.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = '0';
             toast.style.transform = 'translateX(20px)';
-            setTimeout(() => toast.remove(), 500);
-        }, 5000);
+            toast.style.transition = 'all 0.4s';
+            setTimeout(() => toast.remove(), 400);
+        }, 4000);
     }
+
+    function escHtml(str) {
+        return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
 })();

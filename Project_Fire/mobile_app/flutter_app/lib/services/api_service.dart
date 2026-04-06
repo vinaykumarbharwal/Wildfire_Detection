@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:location/location.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,7 +14,7 @@ class ApiService extends ChangeNotifier {
   
   Future<Map<String, dynamic>> reportDetection({
     required Map<String, dynamic> detection,
-    required File imageFile,
+    required XFile imageFile,
   }) async {
     try {
       // Get location
@@ -25,7 +26,7 @@ class ApiService extends ChangeNotifier {
           throw Exception('Location services are disabled');
         }
       }
-      
+
       PermissionStatus permissionGranted = await location.hasPermission();
       if (permissionGranted == PermissionStatus.denied) {
         permissionGranted = await location.requestPermission();
@@ -33,45 +34,46 @@ class ApiService extends ChangeNotifier {
           throw Exception('Location permissions are denied');
         }
       }
-      
+
       var currentLocation = await location.getLocation();
-      
-      // Create multipart request
+
+      // Create multipart request (Web-compatible using bytes)
       var uri = Uri.parse('$baseUrl/detections/report');
       var request = http.MultipartRequest('POST', uri);
-      
-      // Add image file
+
+      // Read image as bytes (works on Web + Native)
+      final Uint8List imageBytes = await imageFile.readAsBytes();
+      final filename = 'detection_${DateTime.now().millisecondsSinceEpoch}.jpg';
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'image',
-          imageFile.path,
-          filename: 'detection_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          imageBytes,
+          filename: filename,
         ),
       );
-      
+
       // Add fields
       request.fields['latitude'] = currentLocation.latitude.toString();
       request.fields['longitude'] = currentLocation.longitude.toString();
       request.fields['confidence'] = detection['confidence'].toString();
       request.fields['timestamp'] = detection['timestamp'];
-      
+
       // Add auth token if available
       if (_authToken != null) {
         request.headers['Authorization'] = 'Bearer $_authToken';
       }
-      
+
       // Send request
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
-      
-      if (response.statusCode == 200) {
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         var data = json.decode(response.body);
-        print('✅ Detection reported: ${data['detection_id']}');
+        print('✅ Detection reported: ${data["detection_id"]}');
         return data;
       } else {
-        throw Exception('Server error: ${response.statusCode}');
+        throw Exception('Server error: ${response.statusCode} - ${response.body}');
       }
-      
     } catch (e) {
       print('❌ Error reporting detection: $e');
       throw Exception('Failed to report detection: $e');
@@ -150,29 +152,32 @@ class ApiService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Map<String, dynamic>> detectFireCloud(File imageFile, {double lat = 0.0, double lng = 0.0}) async {
+  Future<Map<String, dynamic>> detectFireCloud(XFile imageFile, {double lat = 0.0, double lng = 0.0}) async {
     try {
       var uri = Uri.parse('$baseUrl/inference/detect');
       var request = http.MultipartRequest('POST', uri);
-      
+
       // Add Coordinates
       request.fields['lat'] = lat.toString();
       request.fields['lng'] = lng.toString();
-      
+
+      // Web-compatible: use bytes instead of fromPath
+      final Uint8List imageBytes = await imageFile.readAsBytes();
       request.files.add(
-        await http.MultipartFile.fromPath(
+        http.MultipartFile.fromBytes(
           'image',
-          imageFile.path,
+          imageBytes,
+          filename: imageFile.name,
         ),
       );
-      
+
       if (_authToken != null) {
         request.headers['Authorization'] = 'Bearer $_authToken';
       }
-      
+
       var streamedResponse = await request.send();
       var response = await http.Response.fromStream(streamedResponse);
-      
+
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {

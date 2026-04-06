@@ -1,6 +1,7 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:camera/camera.dart';
+import 'package:image_picker/image_picker.dart';
 import 'api_service.dart';
 
 class DetectionService extends ChangeNotifier {
@@ -22,8 +23,8 @@ class DetectionService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final File file = File(imageFile.path);
-      final result = await apiService.detectFireCloud(file, lat: lat, lng: lng);
+      // Pass XFile directly — works on Web, Windows, Android, iOS
+      final result = await apiService.detectFireCloud(imageFile, lat: lat, lng: lng);
       
       _isProcessing = false;
       notifyListeners();
