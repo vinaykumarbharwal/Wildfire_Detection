@@ -181,7 +181,7 @@ class NotificationService:
             f"Severity: {detection['severity'].upper()}",
             f"Location: {detection.get('address', 'Unknown')}",
             f"Confidence: {detection['confidence']*100:.0f}%",
-            f"Time: {detection['timestamp'].strftime('%H:%M %d/%m/%Y')}",
+            f"Time: {detection['timestamp'].strftime('%H:%M %d/%m/%Y') if isinstance(detection['timestamp'], datetime) else str(detection['timestamp'])}",
             "",
             f"📍 Map: https://maps.google.com/?q={detection['latitude']},{detection['longitude']}",
             image_str,
@@ -200,7 +200,7 @@ class NotificationService:
             "",
             f"Severity: {detection['severity'].upper()}",
             f"Confidence: {detection['confidence']*100:.0f}%",
-            f"Time: {detection['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Time: {detection['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(detection['timestamp'], datetime) else str(detection['timestamp'])}",
             "",
             "LOCATION DETAILS:",
             f"Address: {detection.get('address', 'Unknown')}",
@@ -265,7 +265,7 @@ class NotificationService:
                     <div class="detail-row">
                         <div class="label">📊 Detection Details</div>
                         <div class="value">Confidence: {detection['confidence']*100:.1f}%</div>
-                        <div class="value">Time: {detection['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}</div>
+                        <div class="value">Time: {detection['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(detection['timestamp'], datetime) else str(detection['timestamp'])}</div>
                         <div class="value">Status: {detection.get('status', 'pending').upper()}</div>
                     </div>
                     

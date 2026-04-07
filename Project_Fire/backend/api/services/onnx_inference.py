@@ -76,9 +76,9 @@ class OnnxInferenceService:
             best_pred = predictions[best_idx]
             
             confidence = float(best_pred[4])
-            detected = confidence > 0.15 # Lowered threshold to improve sensitivity
+            detected = confidence > 0.50 # Threshold set to 50%
             
-            logger.info(f"Top ONNX prediction confidence: {confidence*100:.2f}% (Threshold: 15%)")
+            logger.info(f"Top ONNX prediction confidence: {confidence*100:.2f}% (Threshold: 50%)")
             
             return {
                 "fire_detected": detected,
