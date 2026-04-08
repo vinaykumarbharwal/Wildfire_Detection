@@ -692,6 +692,30 @@
                     </div>
                     
                         <div class="flex flex-col gap-3 mt-8 pt-6 border-t border-slate-50">
+                            ${detection.weather_snapshot ? `
+                            <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:12px;margin-bottom:8px;">
+                                <p style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.1em;color:#92400e;margin-bottom:6px;">☁️ Live Weather at Site</p>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#333;">
+                                    <div>🌡️ Temp: <b>${detection.weather_snapshot.temperature_celsius}°C</b></div>
+                                    <div>💨 Wind: <b>${detection.weather_snapshot.wind_speed_kmh} km/h</b></div>
+                                    <div>🧭 Dir: <b>${detection.weather_snapshot.wind_direction_degrees}°</b></div>
+                                    <div>💧 Hum: <b>${detection.weather_snapshot.humidity_percent || '--'}%</b></div>
+                                </div>
+                            </div>` : ''}
+
+                            <div id="ai-modal-report-${detection.id}" style="margin-bottom:4px;">
+                                ${detection.ai_tactical_report ? `
+                                <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:12px;font-size:12px;color:#14532d;">
+                                    <p style="font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">🤖 AI Tactical Assessment</p>
+                                    <div style="white-space:pre-wrap;">${detection.ai_tactical_report}</div>
+                                </div>` : ''}
+                            </div>
+
+                            <button onclick="generateModalAIReport('${detection.id}', this)"
+                                style="width:100%;padding:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:12px;cursor:pointer;font-size:11px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;">
+                                ✨ ${detection.ai_tactical_report ? 'Regenerate' : 'Generate'} AI Tactical Report
+                            </button>
+
                             <div class="flex gap-4">
                                  <a href="https://maps.google.com/?q=${detection.latitude},${detection.longitude}" target="_blank" class="flex-1 bg-slate-900 text-white py-3 rounded-xl text-center text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all">
                                     View Map
@@ -701,6 +725,7 @@
                                 </a>
                             </div>
                         </div>
+
                 </div>
             </div>
         </div>
@@ -712,6 +737,40 @@
             if (e.target === modal) modal.remove();
         });
     }
+
+    async function generateModalAIReport(detectionId, btn) {
+        const reportDiv = document.getElementById(`ai-modal-report-${detectionId}`);
+        if (!reportDiv) return;
+
+        btn.disabled = true;
+        btn.textContent = '⏳ Contacting Gemini AI...';
+        reportDiv.innerHTML = `<div style="color:#6b7280;font-size:12px;padding:6px;text-align:center;">🔄 Generating tactical assessment, please wait...</div>`;
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/detections/${detectionId}/generate-ai-report`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ai_tactical_report) {
+                reportDiv.innerHTML = `
+                    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:12px;font-size:12px;color:#14532d;">
+                        <p style="font-weight:900;font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px;">🤖 AI Tactical Assessment</p>
+                        <div style="white-space:pre-wrap;">${data.ai_tactical_report}</div>
+                    </div>`;
+                btn.textContent = '✨ Regenerate AI Tactical Report';
+            } else {
+                reportDiv.innerHTML = `<div style="color:red;font-size:12px;">⚠️ Could not generate report.</div>`;
+                btn.textContent = '✨ Generate AI Tactical Report';
+            }
+        } catch (err) {
+            reportDiv.innerHTML = `<div style="color:red;font-size:12px;">⚠️ Error: ${err.message}</div>`;
+            btn.textContent = '✨ Generate AI Tactical Report';
+        }
+        btn.disabled = false;
+    }
+
+    // Expose to window for inline onclick handlers
+    window.viewOnMap = viewOnMap;
+    window.showDetectionDetails = showDetectionDetails;
+    window.generateModalAIReport = generateModalAIReport;
 
     function getTimeAgo(timestamp) {
         if (!timestamp) return '';

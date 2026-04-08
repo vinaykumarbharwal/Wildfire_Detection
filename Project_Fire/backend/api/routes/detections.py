@@ -37,6 +37,8 @@ from api.services.firebase_service import db
 from api.services.geocoding_service import find_nearby_stations, get_location_details
 from api.services.notification_service import NotificationService
 from api.services.supabase_service import supabase_service
+from api.services.weather_service import get_current_weather
+from api.services.llm_service import generate_tactical_report
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +156,8 @@ async def report_detection(
         # ── Upload image (non-blocking failure) ──
         image_url = await _upload_image(image, detection_id)
 
-        # ── Reverse-geocode & find stations ──────
-        location_details, nearby_stations = await _gather_location_data(
+        # ── Reverse-geocode, find stations, & get weather ──────
+        location_details, nearby_stations, weather_data = await _gather_location_data(
             latitude, longitude
         )
 
@@ -178,6 +180,7 @@ async def report_detection(
             "status": "pending",
             "severity": severity,
             "nearby_stations": nearby_stations[:5],
+            "weather_snapshot": weather_data,
             "notifications_sent": False,
             "notes": None,
         }
@@ -230,7 +233,13 @@ async def _gather_location_data(latitude: float, longitude: float):
         logger.warning("Nearby station lookup failed: %s", exc)
         nearby_stations = []
 
-    return location_details, nearby_stations
+    try:
+        weather_data = await get_current_weather(latitude, longitude)
+    except Exception as exc:
+        logger.warning("Weather metrics fetch failed: %s", exc)
+        weather_data = {}
+
+    return location_details, nearby_stations, weather_data
 
 
 # ══════════════════════════════════════════════
@@ -434,4 +443,45 @@ async def get_nearby_stations(detection_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve nearby stations.",
+        )
+
+
+# ══════════════════════════════════════════════
+# AI Tactical Report Generator
+# ══════════════════════════════════════════════
+@router.post("/{detection_id}/generate-ai-report", tags=["Detections"])
+async def generate_ai_report_endpoint(detection_id: str):
+    """
+    On-demand AI Tactical Report Generation using Google Gemini.
+    Reads the detection data from Firestore and passes it to the LLM.
+    The generated report is saved back to the document and returned.
+    """
+    from api.services.llm_service import generate_tactical_report
+
+    try:
+        detection_ref = db.collection("detections").document(detection_id)
+        doc = detection_ref.get()
+        if not doc.exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Detection '{detection_id}' not found.",
+            )
+
+        data = doc.to_dict()
+
+        # Call the Gemini service
+        report = await generate_tactical_report(data)
+
+        # Persist the report to avoid re-generating on every refresh
+        detection_ref.update({"ai_tactical_report": report})
+
+        return {"status": "success", "detection_id": detection_id, "ai_tactical_report": report}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("AI report generation failed for %s: %s", detection_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI report generation failed: {str(exc)}",
         )

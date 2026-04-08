@@ -16,4 +16,4 @@ onnxruntime
 numpy
 Pillow
 email-validator
-
+google-generativeai

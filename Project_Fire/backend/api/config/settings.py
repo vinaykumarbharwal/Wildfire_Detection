@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     N8N_PASSWORD: Optional[str] = os.getenv("N8N_PASSWORD")
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
+    # LLM Integration (set GROQ_API_KEY for Groq/LLaMA3, or GEMINI_API_KEY for Gemini)
+    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
+    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+
+
     model_config = {
         "env_file": ".env",
         "extra": "ignore"
