@@ -127,12 +127,17 @@ async def root():
 @app.get("/api/health", tags=["Meta"])
 async def health_check():
     """Lightweight health-check endpoint for load-balancers and uptime monitors."""
+    from api.services.redis_service import cache
+    
+    redis_status = "connected" if cache.redis and cache.redis.ping() else "offline"
+    
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "services": {
             "database": "connected",
             "storage": "connected",
+            "cache": redis_status,
         },
     }
 

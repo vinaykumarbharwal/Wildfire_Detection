@@ -21,6 +21,7 @@ from typing import List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -29,6 +30,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from api.models.detection import DetectionResponse, DetectionUpdate
@@ -83,36 +85,99 @@ def _calculate_severity(confidence: float) -> str:
         return "medium"
     return "low"
 
-
 # ──────────────────────────────────────────────
-# Helper – upload image to Supabase
+# Background Task – heavy processing
 # ──────────────────────────────────────────────
-async def _upload_image(image: UploadFile, detection_id: str) -> Optional[str]:
+async def process_detection_task(
+    detection_id: str,
+    latitude: float,
+    longitude: float,
+    confidence: float,
+    temp_image_path: str,
+    user_uid: str,
+    user_name: str,
+):
     """
-    Save the upload to a temp file, push to Supabase, then clean up.
-    Returns the public URL or None when the upload fails.
+    Handles heavy I/O and processing in the background:
+    1. Uploads image to Supabase.
+    2. Gathers geocoding, weather, and nearby stations.
+    3. Persists the final record to Firestore.
+    4. Dispatches emergency notifications.
     """
-    ext = (
-        image.filename.rsplit(".", 1)[-1].lower()
-        if image.filename and "." in image.filename
-        else "jpg"
-    )
-    image_path = f"detections/{detection_id}.{ext}"
-    temp_file = os.path.join(tempfile.gettempdir(), f"{detection_id}.{ext}")
-
     try:
-        with open(temp_file, "wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-
-        image_url = await supabase_service.upload_image(temp_file, image_path)
-        return image_url
-    except Exception as exc:
-        logger.warning("Image upload skipped (Supabase error): %s", exc)
-        return None
-    finally:
-        if os.path.exists(temp_file):
+        # 1. Upload image to Supabase
+        image_url = None
+        if os.path.exists(temp_image_path):
+            ext = temp_image_path.rsplit(".", 1)[-1].lower()
+            supabase_path = f"detections/{detection_id}.{ext}"
             try:
-                os.remove(temp_file)
+                image_url = await supabase_service.upload_image(temp_image_path, supabase_path)
+            except Exception as exc:
+                logger.error("Supabase upload failed for %s: %s", detection_id, exc)
+
+        # 2. Gather rich metadata
+        location_details, nearby_stations, weather_data = await _gather_location_data(
+            latitude, longitude
+        )
+        severity = _calculate_severity(confidence)
+
+        # 3. Construct detection object
+        detection_data = {
+            "id": detection_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "address": location_details.get("address"),
+            "city": location_details.get("city"),
+            "state": location_details.get("state"),
+            "country": location_details.get("country"),
+            "postal_code": location_details.get("postal_code"),
+            "confidence": round(confidence, 4),
+            "image_url": image_url,
+            "timestamp": datetime.utcnow(),
+            "reported_by": user_uid,
+            "reporter_name": user_name,
+            "status": "pending",
+            "severity": severity,
+            "nearby_stations": nearby_stations[:5],
+            "weather_snapshot": weather_data,
+            "notifications_sent": False,
+            "notes": None,
+            "ai_tactical_report": None  # Placeholder
+        }
+
+        # 4. Automated AI Tactical Analysis (New)
+        # For High/Critical threats, pre-generate the report for immediate response
+        if severity in ["high", "critical"]:
+            try:
+                logger.info("⚡ Generating proactive AI tactical report for %s", detection_id)
+                ai_report = await generate_tactical_report(detection_data)
+                detection_data["ai_tactical_report"] = ai_report
+            except Exception as ai_exc:
+                logger.error("Proactive AI report failed: %s", ai_exc)
+
+        # 5. Save to Firestore
+        db.collection("detections").document(detection_id).set(detection_data)
+        logger.info("Background processing complete for %s (severity=%s)", detection_id, severity)
+
+        # 5. Send notifications
+        try:
+            await notification_service.send_alerts(detection_data, nearby_stations)
+            db.collection("detections").document(detection_id).update(
+                {
+                    "notifications_sent": True,
+                    "notification_time": datetime.utcnow(),
+                }
+            )
+        except Exception as notif_err:
+            logger.error("Notification error for %s: %s", detection_id, notif_err)
+
+    except Exception as exc:
+        logger.exception("Critical error in background task for %s: %s", detection_id, exc)
+    finally:
+        # Cleanup temp file
+        if os.path.exists(temp_image_path):
+            try:
+                os.remove(temp_image_path)
             except OSError:
                 pass
 
@@ -122,6 +187,7 @@ async def _upload_image(image: UploadFile, detection_id: str) -> Optional[str]:
 # ══════════════════════════════════════════════
 @router.post("/report", status_code=status.HTTP_201_CREATED)
 async def report_detection(
+    background_tasks: BackgroundTasks,
     latitude: float = Form(...),
     longitude: float = Form(...),
     confidence: float = Form(...),
@@ -129,7 +195,10 @@ async def report_detection(
     reported_by: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Report a new fire detection from the mobile app (authentication required)."""
+    """
+    Report a new fire detection. 
+    Returns 201 Created immediately after queuing the detection for background processing.
+    """
 
     # ── Validate inputs ──────────────────────
     if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
@@ -153,70 +222,44 @@ async def report_detection(
     try:
         detection_id = str(uuid.uuid4())
 
-        # ── Upload image (non-blocking failure) ──
-        image_url = await _upload_image(image, detection_id)
-
-        # ── Reverse-geocode, find stations, & get weather ──────
-        location_details, nearby_stations, weather_data = await _gather_location_data(
-            latitude, longitude
+        # ── Save image to a temporary file immediately ──
+        # We must save the stream before the request finishes
+        ext = (
+            image.filename.rsplit(".", 1)[-1].lower()
+            if image.filename and "." in image.filename
+            else "jpg"
         )
+        temp_file = os.path.join(tempfile.gettempdir(), f"{detection_id}.{ext}")
+        
+        with open(temp_file, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
 
-        severity = _calculate_severity(confidence)
-
-        detection_data = {
-            "id": detection_id,
-            "latitude": latitude,
-            "longitude": longitude,
-            "address": location_details.get("address"),
-            "city": location_details.get("city"),
-            "state": location_details.get("state"),
-            "country": location_details.get("country"),
-            "postal_code": location_details.get("postal_code"),
-            "confidence": round(confidence, 4),
-            "image_url": image_url,
-            "timestamp": datetime.utcnow(),
-            "reported_by": current_user.get("uid"),
-            "reporter_name": current_user.get("name"),
-            "status": "pending",
-            "severity": severity,
-            "nearby_stations": nearby_stations[:5],
-            "weather_snapshot": weather_data,
-            "notifications_sent": False,
-            "notes": None,
-        }
-
-        # ── Persist to Firestore ──────────────────
-        db.collection("detections").document(detection_id).set(detection_data)
-        logger.info("Detection %s saved (severity=%s)", detection_id, severity)
-
-        # ── Send notifications ────────────────────
-        try:
-            await notification_service.send_alerts(detection_data, nearby_stations)
-            db.collection("detections").document(detection_id).update(
-                {
-                    "notifications_sent": True,
-                    "notification_time": datetime.utcnow(),
-                }
-            )
-        except Exception as notif_err:
-            logger.error("Notification error for %s: %s", detection_id, notif_err)
+        # ── Queue heavy lifting for later ──
+        background_tasks.add_task(
+            process_detection_task,
+            detection_id=detection_id,
+            latitude=latitude,
+            longitude=longitude,
+            confidence=confidence,
+            temp_image_path=temp_file,
+            user_uid=current_user.get("uid"),
+            user_name=current_user.get("name")
+        )
 
         return {
-            "status": "success",
+            "status": "queued",
             "detection_id": detection_id,
-            "message": "Fire reported successfully.",
-            "severity": severity,
-            "image_url": image_url,
+            "message": "Detection report received and queued for processing.",
+            "estimated_processing_time": "3-5 seconds",
         }
 
-    except HTTPException:
-        raise
     except Exception as exc:
-        logger.exception("Unexpected error while reporting detection: %s", exc)
+        logger.exception("Queueing detection failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while processing the detection report.",
+            detail="Failed to queue detection report.",
         )
+
 
 
 async def _gather_location_data(latitude: float, longitude: float):

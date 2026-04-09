@@ -60,6 +60,14 @@ services:
     networks:
       - wildfire-network
 
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - wildfire-network
+
 networks:
   wildfire-network:
     driver: bridge

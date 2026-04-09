@@ -2,12 +2,14 @@ import os
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from api.services.onnx_inference import onnx_service
 from api.services.firebase_service import db
-from api.routes.detections import _upload_image
+from api.services.supabase_service import supabase_service
 from api.services.notification_service import NotificationService
 from api.services.geocoding_service import get_location_details
 from datetime import datetime
 import logging
 import uuid
+import tempfile
+import shutil
 
 # Initialize tactical services
 notification_service = NotificationService()
@@ -36,6 +38,11 @@ async def detect_fire(
     Run ONNX inference and save detection to Firestore if fire is confirmed.
     Geocodes real GPS coordinates from mobile app into a readable address.
     """
+    address = "Mobile Surveillance Node"
+    city = None
+    state = None
+    country = None
+
     try:
         image_bytes = await image.read()
 
@@ -49,9 +56,22 @@ async def detect_fire(
 
             detection_id = str(uuid.uuid4())
 
-            # Upload evidence photo
-            image.file.seek(0)
-            image_url = await _upload_image(image, detection_id)
+            # ── Upload evidence photo ──
+            ext = image.filename.rsplit(".", 1)[-1].lower() if "." in (image.filename or "") else "jpg"
+            supabase_path = f"detections/{detection_id}.{ext}"
+            
+            # Save stream to a temp file for Supabase upload
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
+                image.file.seek(0)
+                shutil.copyfileobj(image.file, tmp)
+                tmp_path = tmp.name
+            
+            image_url = None
+            try:
+                image_url = await supabase_service.upload_image(tmp_path, supabase_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
             # 📍 Reverse-geocode real GPS coordinates
             address = "Mobile Surveillance Node"

@@ -1,15 +1,30 @@
 import aiohttp
 import math
+import json
+import logging
 from typing import Dict, List, Optional
 import os
 from dotenv import load_dotenv
+from api.services.redis_service import cache
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
 
+# Cache constants
+CACHE_EXPIRY_SECONDS = 60 * 60 * 24 * 7 # 7 Days (geocoding doesn't change often)
+
 async def get_location_details(lat: float, lon: float) -> Dict:
-    """Get address details from coordinates using Google Geocoding API"""
+    """Get address details from coordinates using Google Geocoding API with caching."""
+    # Round to 4 decimals for cache key (~11m precision - good for hits)
+    lat_key, lon_key = round(lat, 4), round(lon, 4)
+    cache_key = f"geocode:{lat_key}:{lon_key}"
+    
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
     try:
         if not GOOGLE_MAPS_API_KEY:
             return {'address': f"{lat}, {lon}"}
@@ -47,15 +62,23 @@ async def get_location_details(lat: float, lon: float) -> Dict:
                         elif 'postal_code' in types:
                             location['postal_code'] = component['long_name']
                     
+                    cache.set(cache_key, location, CACHE_EXPIRY_SECONDS)
                     return location
                     
     except Exception as e:
-        print(f"Geocoding error: {e}")
+        logger.error(f"Geocoding error: {e}")
     
     return {'address': f"{lat}, {lon}"}
 
 async def find_nearby_stations(lat: float, lon: float, radius: int = 50000) -> List[Dict]:
-    """Find nearby fire stations using Google Places API"""
+    """Find nearby fire stations using Google Places API with caching."""
+    lat_key, lon_key = round(lat, 3), round(lon, 3) # Slightly less precision for stations is fine
+    cache_key = f"stations:{lat_key}:{lon_key}:{radius}"
+    
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
     try:
         if not GOOGLE_MAPS_API_KEY:
             return []
@@ -97,14 +120,20 @@ async def find_nearby_stations(lat: float, lon: float, radius: int = 50000) -> L
                 
                 # Sort by distance
                 stations.sort(key=lambda x: x['distance'])
+                cache.set(cache_key, stations, CACHE_EXPIRY_SECONDS)
                 return stations
                     
     except Exception as e:
-        print(f"Places API error: {e}")
+        logger.error(f"Places API error: {e}")
         return []
 
 async def get_place_details(place_id: str) -> Dict:
-    """Get detailed information about a place"""
+    """Get detailed information about a place with caching."""
+    cache_key = f"place_detail:{place_id}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
     try:
         url = "https://maps.googleapis.com/maps/api/place/details/json"
         params = {
@@ -119,14 +148,16 @@ async def get_place_details(place_id: str) -> Dict:
                 
                 if data['status'] == 'OK':
                     result = data['result']
-                    return {
+                    details = {
                         'phone': result.get('formatted_phone_number') or result.get('international_phone_number'),
                         'website': result.get('website'),
                         'hours': result.get('opening_hours', {}).get('weekday_text')
                     }
+                    cache.set(cache_key, details, CACHE_EXPIRY_SECONDS)
+                    return details
                     
     except Exception as e:
-        print(f"Place details error: {e}")
+        logger.error(f"Place details error: {e}")
     
     return {}
 
@@ -145,4 +176,4 @@ def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
     c = 2 * math.asin(math.sqrt(a))
     
-    return round(R * c, 2)  # Distance in kilometers
+    return round(R * c, 2)  # Distance in kilometers

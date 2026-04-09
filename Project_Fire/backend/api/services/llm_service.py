@@ -30,30 +30,39 @@ async def generate_tactical_report(detection_data: dict) -> str:
 def _build_prompt(detection_data: dict) -> str:
     weather = detection_data.get("weather_snapshot") or {}
     weather_text = (
-        f"Temperature: {weather.get('temperature_celsius', 'N/A')}°C | "
+        f"Temp: {weather.get('temperature_celsius', 'N/A')}°C | "
         f"Wind Speed: {weather.get('wind_speed_kmh', 'N/A')} km/h | "
         f"Wind Direction: {weather.get('wind_direction_degrees', 'N/A')}° | "
         f"Humidity: {weather.get('humidity_percent', 'N/A')}%"
-    ) if weather else "No weather data available."
+    ) if weather else "No live weather metrics available."
 
-    nearby_count = len(detection_data.get("nearby_stations", []))
+    stations = detection_data.get("nearby_stations", [])
+    stations_text = "\n".join([
+        f"- {s.get('name')} ({s.get('distance')} km away)" 
+        for s in stations[:3]
+    ]) if stations else "- No responders within 50km radius."
 
-    return f"""You are a senior wildfire tactical analyst for the Agniveer Command Hub.
-Based on the following live detection data, generate a concise professional AI Tactical Assessment.
-Keep it under 120 words. Use clear bullet points.
+    return f"""### LIVE INCIDENT INTEL - AGNIVEER COMMAND HUB ###
+You are an Elite Wildfire Tactical AI. Analyze the following data and issue a strategic directive.
 
-Detection Data:
-- Location: {detection_data.get('address', 'Unknown')} (Lat: {detection_data.get('latitude')}, Lng: {detection_data.get('longitude')})
-- Severity: {detection_data.get('severity', 'Unknown')}
-- AI Confidence: {round((detection_data.get('confidence') or 0) * 100)}%
-- Weather: {weather_text}
-- Nearby Fire Stations Alerted: {nearby_count}
+INCIDENT PARAMETERS:
+- **Location:** {detection_data.get('address', 'Remote Grid')} (Lat: {detection_data.get('latitude')}, Lng: {detection_data.get('longitude')})
+- **Severity/Confidence:** {detection_data.get('severity', 'Pending Analysis')} / {round((detection_data.get('confidence') or 0) * 100)}%
+- **Environmental Context:** {weather_text}
+- **Responder Proximity:**
+{stations_text}
 
-Respond using this format:
-**AI Tactical Assessment:**
-- **Threat Level:** [brief analysis]
-- **Spread Risk:** [wind/humidity impact on fire spread]
-- **Recommended Action:** [what response units should do immediately]"""
+Provide an "Elite Tactical Assessment" (max 150 words). Focus on:
+1. **Threat Assessment:** Immediate danger to life/property.
+2. **Spread Vector:** Predict fire path based on wind direction ({weather.get('wind_direction_degrees', 'N/A')}°).
+3. **Strategic Directives:** Specific instructions for the nearest stations (e.g., specific containment lines, drone deployment, or evacuation triggers).
+
+Use a professional, authoritative, military-style tone. 
+FORMAT:
+**⚡ AGNIVEER TACTICAL DIRECTIVE**
+- **THREAT ANALYSIS:** [Analysis]
+- **ENVIRONMENTAL IMPACT:** [Weather risk]
+- **OPERATIONAL ORDERS:** [Directives]"""
 
 
 async def _groq_generate(detection_data: dict) -> str:
