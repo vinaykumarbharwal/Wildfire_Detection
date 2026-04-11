@@ -44,7 +44,7 @@ Agniveer is built upon a distributed microservices architecture designed for low
 graph TD
     subgraph "Edge Tier (Mobile)"
         A[📱 Flutter Capture App]
-        A -->|On-Device Inference| TFL[(YOLOv7 TFLite Model)]
+        A -->|On-Device Inference| TFL[(YOLO26 TFLite Model)]
         A -->|Location| GPS[(GPS API)]
     end
 
