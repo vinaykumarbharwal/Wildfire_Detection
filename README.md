@@ -186,7 +186,7 @@ Duplicate `Project_Fire/config/.env.example` into `Project_Fire/backend/.env` an
 
 ---
 
-## 🔍 Troubleshooting this side
+## 🔍 Troubleshooting
 
 - **Server Connection Errors**: Verify `firebase-credentials.json` is present in the `backend/` root.
 - **Mobile Sync Issues**: Ensure the mobile device can reach the server IP (updated in `constants.dart`).
