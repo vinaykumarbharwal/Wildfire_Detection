@@ -18,7 +18,7 @@
 
 ## 📖 Overview
 
-**Agniveer** is a mission-critical, full-stack platform engineered to detect and mitigate wildfires in real-time. By leveraging **Edge-AI (YOLOv7 TFLite)** on mobile endpoints, the system eliminates network inference latency and guarantees immediate fire spotting even in remote, low-bandwidth areas.
+**Agniveer** is a mission-critical, full-stack platform engineered to detect and mitigate wildfires in real-time. By leveraging **Edge-AI (YOLO26 TFLite)** on mobile endpoints, the system eliminates network inference latency and guarantees immediate fire spotting even in remote, low-bandwidth areas.
 
 > [!IMPORTANT]
 > This system is designed for public safety and emergency response. It combines edge computing with cloud orchestration to provide a sub-second response loop between detection and alert.
