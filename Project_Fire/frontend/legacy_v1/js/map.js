@@ -148,8 +148,8 @@ const MapController = {
         reportDiv.innerHTML = `<div style="color:#6b7280;font-size:12px;padding:6px;">🔄 Contacting Gemini AI, please wait...</div>`;
 
         try {
-            const API_BASE = window.API_BASE_URL || 'http://localhost:8000';
-            const res = await fetch(`${API_BASE}/api/detections/${detectionId}/generate-ai-report`, { method: 'POST' });
+            const API_BASE = window.API_CONFIG ? window.API_CONFIG.baseUrl : 'http://localhost:8000/api';
+            const res = await fetch(`${API_BASE}/detections/${detectionId}/generate-ai-report`, { method: 'POST' });
             const data = await res.json();
 
             if (data.ai_tactical_report) {

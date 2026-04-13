@@ -1,6 +1,6 @@
 (function () {
     // Application state
-    const API_BASE_URL = 'http://10.60.1.7:8000/api';
+    const API_BASE_URL = window.API_CONFIG ? window.API_CONFIG.baseUrl : 'http://localhost:8000/api';
     let detections = [];
     let currentFilter = 'all';
     let charts = {};

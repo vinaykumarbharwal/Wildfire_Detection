@@ -7,7 +7,7 @@
     let detections = [];
     let filteredDetections = [];
     let isRealtime = false;
-    const API_BASE_URL = 'http://127.0.0.1:8000/api';
+    const API_BASE_URL = window.API_CONFIG ? window.API_CONFIG.baseUrl : 'http://localhost:8000/api';
 
     // ─── Global Actions (called from HTML buttons) ────────────────────────────
 

@@ -36,8 +36,13 @@ dist/
 # =========================
 node_modules/
 .npm/
+dist/
 dist-ssr/
 *.local
+.parcel-cache/
+.next/
+out/
+.vercel/
 
 # =========================
 # Flutter / Mobile App
@@ -48,6 +53,38 @@ dist-ssr/
 .pub-cache/
 .pub/
 build/
+*.mode1v3
+*.mode2v3
+*.moved-aside
+*.pbxuser
+*.perspectivev3
+**/*sync/
+
+# Android Specific
+.gradle/
+local.properties
+*.out
+*.apk
+*.aab
+captures/
+
+# iOS/MacOS Specific
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Pods/
+macos/Flutter/ephemeral/
+.xccheckout
+**/docsets
+**/DerivedData
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xccheckout
+*.moved-aside
+*.swp
+*.lock
+!/Podfile.lock
 
 # =========================
 # IDEs & Editors
@@ -85,3 +122,4 @@ Desktop.ini
 # Firebase Credentials
 # =========================
 firebase-credentials.json
+

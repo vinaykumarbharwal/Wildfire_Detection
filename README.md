@@ -112,11 +112,11 @@ When a detection is verified, it triggers an automation engine (n8n). This detac
 Project_Fire/
 ├── automation/                 # n8n workflows & automation setup
 ├── backend/                    # FastAPI source code & business logic
-├── config/                     # Environment configuration templates
-├── database/                   # Firestore rules & security policies
-├── docker/                     # Container orchestration & dockerfiles
-├── frontend_website/           # Real-time Web surveillance dashboard
-├── mobile_app/                 # Flutter mobile application (iOS/Android)
+│   └── api/                    # Core API implementation
+├── frontend/                   # Real-time Web surveillance dashboard
+│   └── legacy_v1/              # Legacy version of the dashboard
+├── mobile_app/                 # Flutter mobile application
+│   └── flutter_app/            # Main Flutter project
 └── scripts/                    # Maintenance & utility scripts
 ```
 
@@ -124,24 +124,14 @@ Project_Fire/
 
 ## 🚀 Quick Start
 
-### 1. Docker Deployment (Recommended)
+### 1. Unified Setup
 
-The platform provides a unified container stack for quick deployment.
-
-```bash
-# Clone the repository
-git clone https://github.com/vinaykumarbharwal/Fire_GITHUB.git
-cd Fire_GITHUB
-
-# Build and start all services
-cd Project_Fire/docker
-docker-compose up --build -d
-```
+The platform is designed to run with a FastAPI backend and a Flutter mobile client.
 
 > [!TIP]
 > **Default Access Points:**
-> - Dashboard: `http://localhost:80`
 > - API Documentation: `http://localhost:8000/api/docs`
+> - Legacy Dashboard: Open `Project_Fire/frontend/legacy_v1/index.html` in a browser.
 
 ---
 
@@ -158,7 +148,7 @@ uvicorn api.main:app --reload
 
 #### **B. Frontend Website**
 ```bash
-cd Project_Fire/frontend_website
+cd Project_Fire/frontend/legacy_v1
 # Serve using any static server, e.g., Python:
 python -m http.server 3000
 ```
@@ -174,7 +164,7 @@ flutter run
 
 ## 🔒 Configuration
 
-Duplicate `Project_Fire/config/.env.example` into `Project_Fire/backend/.env` and fill in the required credentials.
+Configure the environment variables in `Project_Fire/backend/.env`. A template is provided within that file.
 
 | Variable | Description |
 | :--- | :--- |
