@@ -183,8 +183,3 @@ Configure the environment variables in `Project_Fire/backend/.env`. A template i
 - **Dashboard Data Lag**: Check if the Firestore security rules allow read access from the dashboard domain.
 
 ---
-
-<div align="center">
-  <p><i>Architected and Designed for Public Safety & Real-Time Security.</i></p>
-  <img src="https://img.shields.io/badge/Made%20with-❤-red?style=flat-square" />
-</div>
