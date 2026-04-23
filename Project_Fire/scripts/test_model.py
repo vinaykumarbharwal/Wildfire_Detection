@@ -4,12 +4,19 @@ import asyncio
 import numpy as np
 from PIL import Image
 import io
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
+BACKEND_DIR = os.path.join(PROJECT_DIR, "backend")
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 from api.services.onnx_inference import OnnxInferenceService
 
 async def test_inference():
-    # Path to the model
-    base_dir = 'c:/Users/cuhp/Fire_GITHUB/Project_Fire/backend'
-    model_path = os.path.join(base_dir, "api", "assets", "models", "fire_model.onnx")
+    # Path to the model in this repository
+    model_path = os.path.join(BACKEND_DIR, "api", "models", "fire_model.onnx")
     
     print(f"Checking model at: {model_path}")
     if not os.path.exists(model_path):

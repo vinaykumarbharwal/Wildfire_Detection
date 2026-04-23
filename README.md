@@ -143,7 +143,7 @@ cd Project_Fire/backend
 python -m venv env_fire
 source env_fire/bin/activate  # Windows: .\env_fire\Scripts\activate
 pip install -r requirements.txt
-uvicorn api.main:app --reload
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 #### **B. Frontend Website**
@@ -157,8 +157,16 @@ python -m http.server 3000
 ```bash
 cd Project_Fire/mobile_app/flutter_app
 flutter pub get
-flutter run
+flutter run --dart-define=API_BASE_URL=http://10.60.1.7:8000/api
 ```
+
+On Windows, find your PC IP with:
+
+```powershell
+ipconfig
+```
+
+Current campus Wi-Fi IPv4 used in this project: `10.60.1.7`.
 
 ---
 

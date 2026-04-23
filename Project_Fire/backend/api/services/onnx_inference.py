@@ -19,6 +19,7 @@ class OnnxInferenceService:
         self.input_name = None
         self.output_names = None
         self.input_shape = None
+        self.confidence_threshold = float(os.getenv("FIRE_CONFIDENCE_THRESHOLD", "0.50"))
         
         if os.path.exists(model_path):
             try:
@@ -76,16 +77,21 @@ class OnnxInferenceService:
             best_pred = predictions[best_idx]
             
             confidence = float(best_pred[4])
-            detected = confidence > 0.50 # Threshold set to 50%
+            detected = confidence > self.confidence_threshold
             
-            logger.info(f"Top ONNX prediction confidence: {confidence*100:.2f}% (Threshold: 50%)")
+            logger.info(
+                "Top ONNX prediction confidence: %.2f%% (Threshold: %.2f%%)",
+                confidence * 100,
+                self.confidence_threshold * 100,
+            )
             
             return {
                 "fire_detected": detected,
                 "confidence": round(float(confidence), 4),
                 "label": "fire" if detected else "none",
                 "boxes": [best_pred[0:4].tolist()],
-                "raw_output_shape": list(outputs[0].shape)
+                "raw_output_shape": list(outputs[0].shape),
+                "threshold": self.confidence_threshold,
             }
         except Exception as e:
             logger.error(f"Inference error: {e}")

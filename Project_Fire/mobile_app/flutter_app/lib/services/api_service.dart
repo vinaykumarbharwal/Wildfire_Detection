@@ -114,16 +114,19 @@ class ApiService extends ChangeNotifier {
 
   Future<bool> login(String email, String password) async {
     try {
-      var uri = Uri.parse('$baseUrl/auth/login');
+      var uri = Uri.parse('$baseUrl/auth/token');
       var response = await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'email': email, 'password': password}),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'username': email,
+          'password': password,
+        },
       );
       
       if (response.statusCode == 200) {
         var data = json.decode(response.body);
-        _authToken = data['token'];
+        _authToken = data['access_token'];
         
         // Save token
         SharedPreferences prefs = await SharedPreferences.getInstance();

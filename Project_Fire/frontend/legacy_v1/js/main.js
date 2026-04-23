@@ -310,7 +310,8 @@
         const label = document.getElementById('aiLabel');
         const confidence = document.getElementById('aiConfidence');
 
-        if (result.detected) {
+        const isDetected = result.fire_detected === true || result.detected === true;
+        if (isDetected) {
             statusText.textContent = `🔥 FIRE DETECTED (${latency}ms)`;
             statusText.classList.add('text-primary');
             statusText.classList.remove('text-white');

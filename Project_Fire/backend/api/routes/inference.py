@@ -44,6 +44,12 @@ async def detect_fire(
     country = None
 
     try:
+        logger.info(
+            "Inference request received | file=%s | lat=%s | lng=%s",
+            image.filename,
+            lat,
+            lng,
+        )
         image_bytes = await image.read()
 
         # Run inference
@@ -51,8 +57,13 @@ async def detect_fire(
         detected: bool = results.get("fire_detected", False)
 
         if detected:
-            confidence_val = results.get("confidence", 0.0)
-            print(f"\n🚨 [FIRE DETECTED] Confidence: {confidence_val:.2%} | GPS: {lat}, {lng}\n")
+            confidence_val = float(results.get("confidence", 0.0))
+            logger.warning(
+                "FIRE DETECTED | confidence=%.4f | gps=(%s,%s)",
+                confidence_val,
+                lat,
+                lng,
+            )
 
             detection_id = str(uuid.uuid4())
 
@@ -124,7 +135,12 @@ async def detect_fire(
                 except Exception as email_err:
                     logger.error(f"Email dispatch failed: {email_err}")
         else:
-            print("✅ Area Clear — No fire detected.")
+            logger.info(
+                "No fire detected | confidence=%.4f | gps=(%s,%s)",
+                float(results.get("confidence", 0.0)),
+                lat,
+                lng,
+            )
 
         confidence: float = float(results.get("confidence", 0.0))
         severity: str = results.get("severity") or _calculate_severity(confidence)
@@ -132,8 +148,10 @@ async def detect_fire(
         return {
             "status": "success",
             "fire_detected": detected,
+            "detected": detected,
             "confidence": confidence,
             "severity": severity,
+            "message": "Fire detected" if detected else "No fire detected",
             "timestamp": results.get("timestamp", ""),
             "filename": image.filename,
             "location": {
