@@ -14,7 +14,7 @@ google-cloud-firestore
 google-auth
 onnxruntime
 numpy
-Pillow
+Pillow==10.4.0
 email-validator
 google-generativeai
 redis
