@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class OnnxInferenceService:
     def __init__(self, model_path: str = None):
         if model_path is None:
-            # Look for model in assets directory
+            # Default model location used by inference API.
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             model_path = os.path.join(base_dir, "models", "fire_model.onnx")
         

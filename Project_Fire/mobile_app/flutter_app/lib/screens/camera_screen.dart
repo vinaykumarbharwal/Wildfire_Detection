@@ -30,6 +30,48 @@ class _CameraScreenState extends State<CameraScreen> {
   final ImagePicker _picker = ImagePicker();
   final Location _location = Location();
 
+  Future<LocationData?> _fetchCurrentLocation() async {
+    try {
+      await _location.changeSettings(
+        accuracy: LocationAccuracy.high,
+        interval: 1000,
+        distanceFilter: 0,
+      );
+    } catch (_) {
+      // Some platforms may not support all changeSettings options.
+    }
+
+    bool serviceEnabled = await _location.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await _location.requestService();
+      if (!serviceEnabled) return null;
+    }
+
+    PermissionStatus permissionGranted = await _location.hasPermission();
+    if (permissionGranted == PermissionStatus.denied) {
+      permissionGranted = await _location.requestPermission();
+    }
+
+    if (permissionGranted != PermissionStatus.granted) {
+      return null;
+    }
+
+    for (int attempt = 1; attempt <= 2; attempt++) {
+      try {
+        final loc = await _location
+            .getLocation()
+            .timeout(Duration(seconds: attempt == 1 ? 8 : 15));
+        if (loc.latitude != null && loc.longitude != null) {
+          return loc;
+        }
+      } catch (e) {
+        print("Location attempt $attempt failed: $e");
+      }
+    }
+
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -99,15 +141,11 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _runAnalysis(XFile xFile, {bool silent = false}) async {
     setState(() { _isProcessing = true; });
     try {
-      // 📍 FETCH LOCATION — with Windows/Web fallback
+      // 📍 Fetch location with retry; fallback to no-GPS payload only if it truly fails.
       LocationData? loc;
       if (!kIsWeb) {
-        try {
-          loc = await _location.getLocation().timeout(Duration(seconds: 10));
-          print("📍 GPS: ${loc.latitude}, ${loc.longitude}");
-        } catch (e) {
-          print("Location timeout or error: $e");
-        }
+        loc = await _fetchCurrentLocation();
+        print("📍 GPS: ${loc?.latitude}, ${loc?.longitude}");
       }
 
       final apiService = Provider.of<ApiService>(context, listen: false);

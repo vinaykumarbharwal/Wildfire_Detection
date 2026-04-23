@@ -122,4 +122,9 @@ Desktop.ini
 # Firebase Credentials
 # =========================
 firebase-credentials.json
+Project_Fire/backend/firebase-credentials.json
+
+# Generated analysis artifacts
+analysis_output.txt
+Project_Fire/mobile_app/flutter_app/analysis_output.txt
 

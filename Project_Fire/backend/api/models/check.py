@@ -47,7 +47,7 @@ st.markdown('<div class="stHeader"><h1>🔥 Agniveer AI Model Inspector</h1><p>U
 # ── MODEL INITIALIZATION ──────────────────────
 @st.cache_resource
 def load_model():
-    # Automatically finds it at api/assets/models/fire_model.onnx
+    # Automatically finds it at api/models/fire_model.onnx
     return OnnxInferenceService()
 
 detector = load_model()
