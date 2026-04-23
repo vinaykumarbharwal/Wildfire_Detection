@@ -128,8 +128,11 @@ async def root():
 async def health_check():
     """Lightweight health-check endpoint for load-balancers and uptime monitors."""
     from api.services.redis_service import cache
-    
-    redis_status = "connected" if cache.redis and cache.redis.ping() else "offline"
+
+    try:
+        redis_status = "connected" if cache.redis and cache.redis.ping() else "offline"
+    except Exception:
+        redis_status = "offline"
     
     return {
         "status": "healthy",
