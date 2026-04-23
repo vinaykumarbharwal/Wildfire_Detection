@@ -1,8 +1,9 @@
 /**
  * Firebase Configuration - Agniveer Tactical Command
  * 
- * NOTE: Replace placeholders with valid credentials from Firebase Console
- * to enable real-time cloud synchronization.
+ * Uses the Firebase web app configuration for wildfirewatch-8f5b7.
+ * This legacy frontend loads Firebase via browser-compatible compat scripts,
+ * so the app config is initialized without ES module imports here.
  */
 const firebaseConfig = {
     apiKey: "AIzaSyBzuEycFugC88d1MIAUt-zQI9jq-l5uWvI",

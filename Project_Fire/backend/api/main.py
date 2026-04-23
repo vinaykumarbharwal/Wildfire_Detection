@@ -128,6 +128,14 @@ async def root():
 async def health_check():
     """Lightweight health-check endpoint for load-balancers and uptime monitors."""
     from api.services.redis_service import cache
+    from api.services.firebase_service import db
+
+    try:
+        # A tiny read to verify Firestore is actually reachable/configured.
+        db.collection("detections").limit(1).get()
+        database_status = "connected"
+    except Exception:
+        database_status = "offline"
 
     try:
         redis_status = "connected" if cache.redis and cache.redis.ping() else "offline"
@@ -138,7 +146,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "services": {
-            "database": "connected",
+            "database": database_status,
             "storage": "connected",
             "cache": redis_status,
         },
