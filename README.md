@@ -18,7 +18,7 @@
 
 ## 📖 Overview
 
-**Agniveer** is a mission-critical, full-stack platform engineered to detect and mitigate wildfires in real-time. By leveraging **Edge-AI (YOLO26 TFLite)** on mobile endpoints, the system eliminates network inference latency and guarantees immediate fire spotting even in remote, low-bandwidth areas.
+**Agniveer** is a mission-critical, full-stack platform engineered to detect and mitigate wildfires in real-time. The mobile app captures images and coordinates, while the backend runs ONNX-based inference and stores detections in Firestore.
 
 > [!IMPORTANT]
 > This system is designed for public safety and emergency response. It combines edge computing with cloud orchestration to provide a sub-second response loop between detection and alert.
@@ -44,7 +44,7 @@ Agniveer is built upon a distributed microservices architecture designed for low
 graph TD
     subgraph "Edge Tier (Mobile)"
         A[📱 Flutter Capture App]
-        A -->|On-Device Inference| TFL[(YOLO26 TFLite Model)]
+        A -->|Image Capture + GPS| TFL[(Flutter Mobile App)]
         A -->|Location| GPS[(GPS API)]
     end
 
@@ -66,7 +66,7 @@ graph TD
     end
 
     %% Data Flows
-    A == "POST /api/detections" ==> B
+    A == "POST /api/inference/detect" ==> B
     B -- "Geo-encodes" --> MAPS
     B -- "Saves Image" --> D
     B -- "Persists Metadata" --> C
@@ -80,11 +80,11 @@ graph TD
     G --> PUSH[FCM Push]
 ```
 
-### 🔹 1. Edge Computing Tier
-Instead of uploading high-bandwidth video feeds, Agniveer brings machine learning to the edge. The Flutter app handles on-device inference using TFLite. Only positive detection frames are payloaded to the server to optimize cellular data usage.
+### 🔹 1. Mobile Capture Tier
+The Flutter app captures a frame and sends it to the backend with GPS coordinates when available. The app does not run the production model locally.
 
 ### 🔹 2. API Gateway & Processing Tier
-Powered by **FastAPI** running atop `uvicorn`, the backend acts as an asynchronous I/O traffic controller. It rapidly ingests image data, decodes spatial coordinates, and reverse-geocodes incidents via the Google Maps API.
+Powered by **FastAPI** running atop `gunicorn` + `uvicorn`, the backend ingests image data, runs ONNX inference, decodes spatial coordinates, and reverse-geocodes incidents via the Google Maps API.
 
 ### 🔹 3. Data Persistence Tier
 - **Firestore:** Manages unstructured fast-moving data with instantaneous cross-client synchronization.
@@ -97,10 +97,11 @@ When a detection is verified, it triggers an automation engine (n8n). This detac
 
 ## ✨ Key Features
 
-- **📱 Offline-First AI Detection**: YOLOv7 TFLite on-device inference for zero-latency fire spotting.
+- **📱 Mobile Capture Flow**: Flutter app sends image + GPS coordinates to the backend.
 - **📍 Real-Time Geocoding**: Automatically tags exact latitudes/longitudes and reverse maps the closest fire authorities.
 - **✉️ Redundant Alert Orchestration**: Parallel SMS (Twilio), Email (SMTP), and Push (FCM) notifications.
 - **🌐 Geospatial Dashboard**: Live surveillance dashboard featuring real-time Firebase listeners and interactive mapping.
+- **🧠 ONNX Inference**: Single backend model source at `Project_Fire/backend/api/models/fire_model.onnx`.
 - **🔐 Enterprise Auth Security**: Role-Based Access Control (RBAC) driven by secure JWT verification.
 - **🐳 Dockerized Topology**: Unified `docker-compose` for rapid, one-command deployment.
 
@@ -143,40 +144,53 @@ cd Project_Fire/backend
 python -m venv env_fire
 source env_fire/bin/activate  # Windows: .\env_fire\Scripts\activate
 pip install -r requirements.txt
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
 
-#### **B. Frontend Website**
+#### **B. Render Deployment**
+- Root Directory: `Project_Fire/backend`
+- Build Command: `pip install --upgrade pip && pip install -r requirements.txt`
+- Start Command: `gunicorn api.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120`
+- Python Version: `3.11.11`
+
+- Required env vars on Render:
+  - `FIREBASE_CREDENTIALS_JSON`
+  - `FIREBASE_PROJECT_ID`
+  - `FIREBASE_STORAGE_BUCKET`
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `JWT_SECRET_KEY`
+  - `GOOGLE_MAPS_API_KEY`
+
+#### **C. Frontend Website**
 ```bash
 cd Project_Fire/frontend/legacy_v1
 # Serve using any static server, e.g., Python:
 python -m http.server 3000
 ```
 
-#### **C. Flutter App**
+Live admin panel:
+- `https://wildfire-detection-cuhp.vercel.app/admin_secure_locked.html`
+
+#### **D. Flutter App**
 ```bash
 cd Project_Fire/mobile_app/flutter_app
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://10.60.1.7:8000/api
+flutter run --dart-define=API_BASE_URL=https://wildfire-detection-d1em.onrender.com/api
 ```
 
-On Windows, find your PC IP with:
-
-```powershell
-ipconfig
-```
-
-Current campus Wi-Fi IPv4 used in this project: `10.60.1.7`.
+For mobile builds, always point `API_BASE_URL` at the deployed Render backend unless you are testing on a local server.
 
 ---
 
 ## 🔒 Configuration
 
-Configure the environment variables in `Project_Fire/backend/.env`. A template is provided within that file.
+Configure the environment variables in `Project_Fire/backend/.env` for local development. A template is provided at `Project_Fire/backend/.env.example`.
 
 | Variable | Description |
 | :--- | :--- |
 | `FIREBASE_PROJECT_ID` | Your Google Cloud Project ID. |
+| `FIREBASE_CREDENTIALS_JSON` | Firebase service-account JSON for Render/backend. |
 | `SUPABASE_URL` | Your Supabase infrastructure URL. |
 | `TWILIO_ACCOUNT_SID` | Twilio SID for SMS notifications. |
 | `JWT_SECRET_KEY` | Secret key for JWT signing. |
@@ -186,8 +200,15 @@ Configure the environment variables in `Project_Fire/backend/.env`. A template i
 
 ## 🔍 Troubleshooting this side
 
-- **Server Connection Errors**: Verify `firebase-credentials.json` is present in the `backend/` root.
-- **Mobile Sync Issues**: Ensure the mobile device can reach the server IP (updated in `constants.dart`).
-- **Dashboard Data Lag**: Check if the Firestore security rules allow read access from the dashboard domain.
+- **Server Connection Errors**: Verify `FIREBASE_CREDENTIALS_JSON` is set in Render and that the backend health endpoint is healthy.
+- **Mobile Sync Issues**: Ensure the Flutter app uses the Render API base URL, not a local Wi-Fi IP.
+- **Dashboard Data Lag**: Check Firestore access and confirm the admin panel is pointed at the deployed backend.
+- **Model Path Issues**: The deployed model is loaded from `Project_Fire/backend/api/models/fire_model.onnx`.
+
+---
+
+## 🔐 Security Note
+
+Do not commit `firebase-credentials.json` or any raw Firebase service-account key to GitHub. Use `FIREBASE_CREDENTIALS_JSON` in Render instead.
 
 ---
