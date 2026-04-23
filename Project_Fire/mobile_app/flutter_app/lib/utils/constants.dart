@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   static const String appName = 'Wildfire Detection';
-  // Override with: flutter run --dart-define=API_BASE_URL=http://10.60.1.7:8000/api
+  // Override with: flutter run --dart-define=API_BASE_URL=https://wildfire-detection-d1em.onrender.com/api
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.60.1.7:8000/api',
+    defaultValue: 'https://wildfire-detection-d1em.onrender.com/api',
   );
   
   // Model parameters

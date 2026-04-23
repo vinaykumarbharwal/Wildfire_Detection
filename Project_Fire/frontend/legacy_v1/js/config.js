@@ -12,6 +12,12 @@ function parseEnvValue(envText, key) {
     return envLine.slice(key.length + 1).trim().replace(/^['"]|['"]$/g, '');
 }
 
+function normalizeApiBaseUrl(url) {
+    if (!url) return null;
+    const trimmed = url.trim().replace(/\/+$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
+
 window.API_CONFIG = {
     envKey: 'FRONTEND_BACKEND_URL',
     resolvedBaseUrl: null,
@@ -23,12 +29,18 @@ window.API_CONFIG = {
                 const envText = await response.text();
                 const envUrl = parseEnvValue(envText, 'FRONTEND_BACKEND_URL');
                 if (envUrl) {
-                    window.API_CONFIG.resolvedBaseUrl = envUrl;
+                    window.API_CONFIG.resolvedBaseUrl = normalizeApiBaseUrl(envUrl);
                     return;
                 }
             }
         } catch (_) {
             // Fall through to hostname fallback.
+        }
+
+        // Production fallback for deployed Vercel domain.
+        if (window.location.hostname === 'wildfire-detection-cuhp.vercel.app') {
+            window.API_CONFIG.resolvedBaseUrl = 'https://wildfire-detection-d1em.onrender.com/api';
+            return;
         }
 
         const hostname = window.location.hostname || 'localhost';
