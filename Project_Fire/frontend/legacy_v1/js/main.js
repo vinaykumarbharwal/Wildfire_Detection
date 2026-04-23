@@ -1,6 +1,6 @@
 (function () {
     // Application state
-    const API_BASE_URL = window.API_CONFIG ? window.API_CONFIG.baseUrl : 'http://localhost:8000/api';
+    let API_BASE_URL = null;
     let detections = [];
     let currentFilter = 'all';
     let charts = {};
@@ -12,6 +12,13 @@
 
     async function initializeApp() {
         try {
+            if (window.API_CONFIG && window.API_CONFIG.ready) {
+                await window.API_CONFIG.ready;
+            }
+            API_BASE_URL = window.API_CONFIG
+                ? window.API_CONFIG.baseUrl
+                : `http://${window.location.hostname || 'localhost'}:8000/api`;
+
             // Initialize date/time immediately (non-blocking)
             startClock();
 

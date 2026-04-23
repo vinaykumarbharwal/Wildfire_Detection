@@ -7,7 +7,7 @@
     let detections = [];
     let filteredDetections = [];
     let isRealtime = false;
-    const API_BASE_URL = window.API_CONFIG ? window.API_CONFIG.baseUrl : 'http://localhost:8000/api';
+    let API_BASE_URL = null;
 
     // ─── Global Actions (called from HTML buttons) ────────────────────────────
 
@@ -93,6 +93,13 @@
     // ─── Init ────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', async () => {
+        if (window.API_CONFIG && window.API_CONFIG.ready) {
+            await window.API_CONFIG.ready;
+        }
+        API_BASE_URL = window.API_CONFIG
+            ? window.API_CONFIG.baseUrl
+            : `http://${window.location.hostname || 'localhost'}:8000/api`;
+
         startClock();
         await fetchData();
 
