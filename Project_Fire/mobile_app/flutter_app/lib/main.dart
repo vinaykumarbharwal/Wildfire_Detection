@@ -4,6 +4,7 @@ import 'screens/camera_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/history_screen.dart';
+import 'screens/landing_screen.dart';
 import 'services/detection_service.dart';
 import 'services/api_service.dart';
 import 'providers/dashboard_provider.dart';
@@ -27,8 +28,9 @@ class MyApp extends StatelessWidget {
           primarySwatch: Colors.red,
           visualDensity: VisualDensity.adaptivePlatformDensity,
         ),
-        initialRoute: '/camera',
+        initialRoute: '/landing',
         routes: {
+          '/landing': (context) => LandingScreen(),
           '/camera': (context) => CameraScreen(),
           '/login': (context) => LoginScreen(),
           '/dashboard': (context) => DashboardScreen(),
